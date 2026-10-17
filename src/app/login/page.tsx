@@ -15,7 +15,7 @@ export default function LoginPage() {
   useEffect(() => {
     api<{ needsSetup: boolean }>("/api/setup")
       .then((r) => r.needsSetup && router.replace("/setup"))
-      .catch(() => {});
+      .catch((e: Error) => setError(e.message));
   }, [router]);
 
   async function submit(e: React.FormEvent) {

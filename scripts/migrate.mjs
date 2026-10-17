@@ -3,9 +3,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
+const env = process.env;
+const fallbackKey = Object.keys(env).find((k) => /(_DATABASE_URL|_POSTGRES_URL)$/.test(k) && !/UNPOOLED|NON_POOLING/.test(k));
+const url = env.DATABASE_URL || env.POSTGRES_URL || (fallbackKey && env[fallbackKey]);
 if (!url) {
-  console.log("[migrate] DATABASE_URL not set, skipping migrations");
+  console.log("[migrate] no database URL set, skipping migrations (they will run on first request)");
   process.exit(0);
 }
 const client = postgres(url, { max: 1, prepare: false });

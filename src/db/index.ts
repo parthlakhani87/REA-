@@ -1,14 +1,19 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { ConfigError, databaseUrl } from "@/lib/config";
 
 type DB = PostgresJsDatabase<typeof schema>;
 const globalForDb = globalThis as unknown as { db?: DB };
 
 function getDb(): DB {
   if (!globalForDb.db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
+    const url = databaseUrl();
+    if (!url) {
+      throw new ConfigError(
+        "Database is not connected. In Vercel open Storage, connect a Neon (Postgres) database to this project, then redeploy.",
+      );
+    }
     // prepare: false keeps us compatible with pooled (pgbouncer) connections on Neon/Supabase
     const client = postgres(url, { prepare: false, max: 5 });
     globalForDb.db = drizzle({ client, schema });
