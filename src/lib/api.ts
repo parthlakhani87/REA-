@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { getCurrentUser, type SessionUser } from "./auth";
+import { ConfigError } from "./config";
+import { ensureSchema } from "@/db/ensure-schema";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -38,9 +40,11 @@ export async function parseBody<T>(req: Request, schema: ZodType<T>): Promise<T>
 export function handler<A extends unknown[]>(fn: (...args: A) => Promise<Response>) {
   return async (...args: A): Promise<Response> => {
     try {
+      await ensureSchema();
       return await fn(...args);
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status);
+      if (err instanceof ConfigError) return json({ error: err.message }, 503);
       if (err instanceof ZodError) {
         const issue = err.issues[0];
         return json({ error: `${issue.path.join(".") || "body"}: ${issue.message}` }, 400);
