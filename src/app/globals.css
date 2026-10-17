@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-ink-900: #0f172a;
+  --color-side: #10231c;
+  --color-side-hover: #1b3a2f;
+  --color-chat: #efeae2;
+}
+
+html,
+body {
+  height: 100%;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.chat-bg {
+  background-color: var(--color-chat);
+  background-image: radial-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@utility input {
+  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed;
+}
+@utility btn-primary {
+  @apply btn bg-brand-600 text-white hover:bg-brand-700;
+}
+@utility btn-ghost {
+  @apply btn text-slate-700 hover:bg-slate-100;
+}
+@utility btn-danger {
+  @apply btn bg-red-600 text-white hover:bg-red-700;
+}
+@utility label {
+  @apply mb-1 block text-xs font-medium text-slate-600;
+}
