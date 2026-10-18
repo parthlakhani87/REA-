@@ -40,21 +40,21 @@ export function TaskCard({ task, me, onChange }: { task: Task; me: Me; onChange:
         : null;
 
   return (
-    <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-indigo-700">
-        <SquareCheck className="h-4 w-4" /> TASK
-        <span className="ml-auto">
+    <div className="w-full max-w-md rounded-xl border border-line bg-surface p-3.5">
+      <div className="mb-1.5 flex items-center gap-2 eyebrow">
+        <SquareCheck className="h-3.5 w-3.5" strokeWidth={2} /> Action item
+        <span className="ml-auto tracking-normal normal-case">
           <StatusPill status={task.status} />
         </span>
       </div>
-      <div className="font-semibold">{task.title}</div>
-      {task.description && <p className="mt-1 text-sm whitespace-pre-wrap text-slate-600">{task.description}</p>}
-      <div className="mt-2 space-y-0.5 text-xs text-slate-500">
+      <div className="text-[14px] font-semibold">{task.title}</div>
+      {task.description && <p className="mt-1 text-[13px] whitespace-pre-wrap text-ink-2">{task.description}</p>}
+      <div className="mt-2.5 space-y-1 border-t border-line pt-2.5 text-xs text-ink-3">
         <div>
-          Assigned to <b className="text-slate-700">{isAssignee ? "you" : task.assigneeName}</b> by {task.createdByName}
+          Owner <b className="font-medium text-ink">{isAssignee ? "You" : task.assigneeName}</b> · assigned by {task.createdByName}
         </div>
         {task.dueAt && (
-          <div className={`flex items-center gap-1 ${overdue ? "font-semibold text-red-600" : ""}`}>
+          <div className={`flex items-center gap-1 ${overdue ? "font-medium text-danger" : ""}`}>
             <CalendarClock className="h-3.5 w-3.5" /> Due {formatTime(task.dueAt)}
             {overdue && " · overdue"}
           </div>
@@ -66,7 +66,7 @@ export function TaskCard({ task, me, onChange }: { task: Task; me: Me; onChange:
         )}
         {task.completedAt && <div>Completed {formatTime(task.completedAt)}</div>}
       </div>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
       <div className="mt-3 flex flex-wrap gap-2">
         {isAssignee && task.status === "open" && (
           <button className="btn-primary px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setStatus("acknowledged")}>
@@ -74,7 +74,7 @@ export function TaskCard({ task, me, onChange }: { task: Task; me: Me; onChange:
           </button>
         )}
         {isAssignee && (task.status === "open" || task.status === "acknowledged") && (
-          <button className="btn border border-slate-300 px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setStatus("in_progress")}>
+          <button className="btn-secondary px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setStatus("in_progress")}>
             Start working
           </button>
         )}
@@ -84,7 +84,7 @@ export function TaskCard({ task, me, onChange }: { task: Task; me: Me; onChange:
           </button>
         )}
         {canManage && task.status === "done" && (
-          <button className="btn border border-slate-300 px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setStatus("open")}>
+          <button className="btn-secondary px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setStatus("open")}>
             Reopen
           </button>
         )}
@@ -134,31 +134,31 @@ export function ApprovalCard({
   const total = approval.costBreakdown.reduce((s, l) => s + Number(l.cost) * (l.qty ?? 1), 0);
 
   return (
-    <div className="w-full max-w-md rounded-xl border border-amber-200 bg-white p-3 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-amber-700">
-        <BadgeCheck className="h-4 w-4" /> COSTING APPROVAL {approval.source === "crm" && "· PONGS CRM"}
-        <span className="ml-auto">
+    <div className="w-full max-w-md rounded-xl border border-line bg-surface p-3.5">
+      <div className="mb-1.5 flex items-center gap-2 eyebrow">
+        <BadgeCheck className="h-3.5 w-3.5" strokeWidth={2} /> Costing approval {approval.source === "crm" && "· PONGS CRM"}
+        <span className="ml-auto tracking-normal normal-case">
           <StatusPill status={approval.status} />
         </span>
       </div>
-      <div className="font-semibold">{approval.title}</div>
+      <div className="text-[14px] font-semibold">{approval.title}</div>
       {approval.externalRef && <div className="text-xs text-slate-500">Quote #{approval.externalRef}</div>}
       {approval.customerName && <div className="text-sm text-slate-600">Customer: {approval.customerName}</div>}
 
-      <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+      <div className="mt-2.5 grid grid-cols-3 divide-x divide-line rounded-lg border border-line bg-surface-2 py-2 text-center">
         <div>
-          <div className="text-[10px] uppercase text-slate-500">Quote</div>
+          <div className="text-[10px] font-medium tracking-wider uppercase text-ink-3">Quote</div>
           <div className="text-[13px] font-semibold sm:text-sm">{formatMoney(approval.amount, approval.currency)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase text-slate-500">Cost</div>
+          <div className="text-[10px] font-medium tracking-wider uppercase text-ink-3">Cost</div>
           <div className="text-[13px] font-semibold sm:text-sm">{formatMoney(approval.cost, approval.currency)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase text-slate-500">Margin</div>
+          <div className="text-[10px] font-medium tracking-wider uppercase text-ink-3">Margin</div>
           <div
-            className={`text-sm font-semibold ${
-              approval.marginPercent !== null && Number(approval.marginPercent) < 10 ? "text-red-600" : "text-emerald-700"
+            className={`text-[13px] font-semibold tabular-nums sm:text-sm ${
+              approval.marginPercent !== null && Number(approval.marginPercent) < 10 ? "text-danger" : "text-positive"
             }`}
           >
             {approval.marginPercent !== null ? `${Number(approval.marginPercent).toFixed(1)}%` : "—"}
@@ -215,21 +215,21 @@ export function ApprovalCard({
         {approval.callbackStatus && <div>CRM sync: {approval.callbackStatus}</div>}
       </div>
       {approval.crmUrl && (
-        <a href={approval.crmUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-700">
+        <a href={approval.crmUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-positive hover:underline">
           Open in PONGS CRM <ExternalLink className="h-3 w-3" />
         </a>
       )}
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       {canDecide && !mode && (
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn-primary px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => decide("approved")}>
             Approve
           </button>
-          <button className="btn border border-slate-300 px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setMode("changes_requested")}>
+          <button className="btn-secondary px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setMode("changes_requested")}>
             Request changes
           </button>
-          <button className="btn border border-red-300 px-2.5 py-1.5 text-xs text-red-700" disabled={busy} onClick={() => setMode("rejected")}>
+          <button className="btn border border-danger/40 px-2.5 py-1.5 text-xs text-danger hover:bg-danger-soft" disabled={busy} onClick={() => setMode("rejected")}>
             Reject
           </button>
         </div>
