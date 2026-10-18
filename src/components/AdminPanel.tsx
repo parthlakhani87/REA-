@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin, Plus, UserPlus } from "lucide-react";
 import { api } from "@/lib/client";
-import { Avatar, ChannelIcon, Modal } from "./ui";
+import { Avatar, ChannelIcon, Modal, Wordmark } from "./ui";
 
 type City = { id: number; name: string };
 type Channel = { id: number; name: string; type: string; cityId: number | null; cityName: string | null };
@@ -53,15 +53,17 @@ export function AdminPanel() {
   const filtered = users.filter((u) => `${u.name} ${u.email} ${cityName(u.cityId)}`.toLowerCase().includes(q.toLowerCase()));
 
   return (
-    <div className="min-h-full bg-slate-50">
-      <header className="flex items-center gap-3 bg-side px-4 py-3 text-white">
-        <a href="/app" className="rounded-md p-1 hover:bg-side-hover" aria-label="Back to chats">
+    <div className="min-h-full bg-canvas">
+      <header className="flex h-12 items-center gap-3 bg-nav px-4 text-nav-ink">
+        <a href="/app" className="rounded-md p-1 hover:bg-nav-2" aria-label="Back to workspace">
           <ArrowLeft className="h-5 w-5" />
         </a>
-        <h1 className="text-lg font-semibold">Admin</h1>
+        <Wordmark tone="light" />
+        <span className="h-4 w-px bg-white/15" />
+        <h1 className="text-[13px] font-medium text-nav-ink-2">Administration</h1>
       </header>
-      <div className="mx-auto max-w-5xl p-4">
-        <div className="mb-4 flex gap-1 border-b">
+      <div className="mx-auto max-w-5xl p-4 md:p-8">
+        <div className="mb-6 flex gap-1 border-b border-line">
           {(
             [
               ["users", "People"],
@@ -72,7 +74,7 @@ export function AdminPanel() {
             <button
               key={v}
               onClick={() => setTab(v)}
-              className={`border-b-2 px-3 py-2 text-sm font-medium ${tab === v ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500"}`}
+              className={`border-b-2 px-3 py-2 text-sm font-medium ${tab === v ? "border-graphite text-ink dark:border-lime" : "border-transparent text-ink-3 hover:text-ink"}`}
             >
               {label}
             </button>
@@ -80,14 +82,14 @@ export function AdminPanel() {
         </div>
 
         {tab === "users" && (
-          <div className="rounded-xl bg-white shadow-sm">
+          <div className="panel">
             <div className="flex items-center gap-2 border-b p-3">
               <input className="input max-w-xs" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} />
               <button className="btn-primary ml-auto" onClick={() => setEditing("new")}>
                 <UserPlus className="h-4 w-4" /> Add person
               </button>
             </div>
-            <div className="divide-y">
+            <div className="divide-y divide-line">
               {filtered.map((u) => (
                 <button key={u.id} onClick={() => setEditing(u)} className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 ${u.active ? "" : "opacity-50"}`}>
                   <Avatar name={u.name} />
@@ -151,7 +153,7 @@ function CitiesTab({ cities, channels, users, onChange }: { cities: City[]; chan
   const memberCount = (channelId: number) => users.filter((u) => u.channelIds.includes(channelId)).length;
   return (
     <div className="space-y-4">
-      <form onSubmit={add} className="flex items-end gap-2 rounded-xl bg-white p-4 shadow-sm">
+      <form onSubmit={add} className="flex items-end gap-2 panel p-4">
         <div className="flex-1">
           <label className="label">New city</label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Surat" required />
@@ -164,7 +166,7 @@ function CitiesTab({ cities, channels, users, onChange }: { cities: City[]; chan
       <p className="text-sm text-slate-500">Each city automatically gets Sales, Project, Accounts and Dispatch groups.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {cities.map((c) => (
-          <div key={c.id} className="rounded-xl bg-white p-4 shadow-sm">
+          <div key={c.id} className="panel p-4">
             <div className="mb-2 flex items-center gap-2 font-semibold">
               <MapPin className="h-4 w-4 text-brand-600" /> {c.name}
             </div>
@@ -387,7 +389,7 @@ function CrmTab() {
     "requestedBy": { "name": "Estimation Team", "email": "estimation@pongs.example" }
   }'`;
   return (
-    <div className="space-y-4 rounded-xl bg-white p-5 text-sm shadow-sm">
+    <div className="space-y-4 panel p-5 text-sm">
       <p>
         PONGS CRM sends quotation costings here. Each one appears as an approval card in the chosen city group, approvers get
         a notification straight away and a reminder every <code>APPROVAL_REMINDER_MINUTES</code> until they decide.

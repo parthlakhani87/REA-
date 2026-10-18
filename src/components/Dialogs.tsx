@@ -25,9 +25,26 @@ const REMINDER_CHOICES = [
   { label: "1 day", value: 1440 },
 ];
 
-export function NewTaskDialog({ channelId, onClose, onCreated }: { channelId: number; onClose: () => void; onCreated: (t: Task) => void }) {
+export function NewTaskDialog({
+  channelId,
+  onClose,
+  onCreated,
+  initial,
+}: {
+  channelId: number;
+  onClose: () => void;
+  onCreated: (t: Task) => void;
+  initial?: { title: string; description: string };
+}) {
   const members = useMembers(channelId);
-  const [form, setForm] = useState({ title: "", description: "", assigneeId: "", dueAt: "", ack: 30, progress: 240 });
+  const [form, setForm] = useState({
+    title: initial?.title ?? "",
+    description: initial?.description ?? "",
+    assigneeId: "",
+    dueAt: "",
+    ack: 30,
+    progress: 240,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -57,10 +74,10 @@ export function NewTaskDialog({ channelId, onClose, onCreated }: { channelId: nu
   }
 
   return (
-    <Modal title="Assign a task" onClose={onClose}>
+    <Modal title={initial ? "Create action item from message" : "New action item"} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="label">Task</label>
+          <label className="label">Action</label>
           <input className="input" required autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Dispatch order #4521 to site" />
         </div>
         <div>
@@ -68,7 +85,7 @@ export function NewTaskDialog({ channelId, onClose, onCreated }: { channelId: nu
           <textarea className="input" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </div>
         <div>
-          <label className="label">Assign to</label>
+          <label className="label">Owner</label>
           <select className="input" required value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
             <option value="">Choose a group member…</option>
             {members.map((m) => (
@@ -106,7 +123,7 @@ export function NewTaskDialog({ channelId, onClose, onCreated }: { channelId: nu
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>
-          {busy ? "Assigning…" : "Assign task"}
+          {busy ? "Creating…" : "Create action item"}
         </button>
       </form>
     </Modal>
@@ -211,7 +228,7 @@ export function NewApprovalDialog({
               Total cost: <b>{cost.toLocaleString("en-IN")}</b>
             </span>
             {margin !== null && (
-              <span className={margin < 10 ? "text-red-600" : "text-emerald-700"}>
+              <span className={margin < 10 ? "text-danger" : "text-positive"}>
                 Margin: <b>{margin.toFixed(1)}%</b>
               </span>
             )}
@@ -268,15 +285,15 @@ export function NewChatDialog({ meId, onClose, onOpen }: { meId: number; onClose
   }
 
   return (
-    <Modal title="New chat" onClose={onClose}>
+    <Modal title="New direct message" onClose={onClose}>
       <div className="relative mb-3">
         <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
         <input className="input pl-9" autoFocus placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="max-h-96 divide-y overflow-y-auto">
+      <div className="max-h-96 divide-y divide-line overflow-y-auto">
         {filtered.map((u) => (
-          <button key={u.id} onClick={() => start(u.id)} className="flex w-full items-center gap-3 px-1 py-2 text-left hover:bg-slate-50">
+          <button key={u.id} onClick={() => start(u.id)} className="flex w-full items-center gap-3 px-1 py-2 text-left hover:bg-surface-2 rounded-lg">
             <Avatar name={u.name} />
             <div>
               <div className="font-medium">{u.name}</div>
@@ -296,9 +313,9 @@ export function MembersDialog({ channelId, onClose, onMessage }: { channelId: nu
   const members = useMembers(channelId);
   return (
     <Modal title={`Members (${members.length})`} onClose={onClose}>
-      <div className="max-h-96 divide-y overflow-y-auto">
+      <div className="max-h-96 divide-y divide-line overflow-y-auto">
         {members.map((m) => (
-          <button key={m.id} onClick={() => onMessage(m.id)} className="flex w-full items-center gap-3 px-1 py-2 text-left hover:bg-slate-50">
+          <button key={m.id} onClick={() => onMessage(m.id)} className="flex w-full items-center gap-3 px-1 py-2 text-left hover:bg-surface-2 rounded-lg">
             <Avatar name={m.name} />
             <div className="flex-1">
               <div className="font-medium">{m.name}</div>

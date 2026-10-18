@@ -30,7 +30,7 @@ export default function SetupPage() {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
   return (
-    <AuthCard title="Welcome to PONGS Connect" subtitle="Create the first admin account">
+    <AuthCard title="Set up PONGS CONNECT" subtitle="Create the first admin account">
       <form onSubmit={submit} className="space-y-4">
         <div>
           <label className="label">Your name</label>
@@ -47,11 +47,11 @@ export default function SetupPage() {
         <div>
           <label className="label">Cities (comma separated)</label>
           <input className="input" value={form.cities} onChange={set("cities")} />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-ink-3">
             Each city gets Sales, Project, Accounts and Dispatch groups. You can add more later.
           </p>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger" role="alert">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>
           {busy ? "Setting up…" : "Create workspace"}
         </button>

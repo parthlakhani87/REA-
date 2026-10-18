@@ -1,18 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { ArrowLeft, BadgeCheck, LoaderCircle, Paperclip, Plus, Send, SquareCheck, Users, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  AtSign,
+  BadgeCheck,
+  Bookmark,
+  FolderOpen,
+  ListChecks,
+  LoaderCircle,
+  PanelRight,
+  Paperclip,
+  Plus,
+  SendHorizontal,
+  SquareCheck,
+  Users,
+  X,
+} from "lucide-react";
 import type { Attachment } from "@/db/schema";
-import { api, type Approval, type ChannelSummary, type Me, type Message, type Task } from "@/lib/client";
+import { api, dayLabel, fileSize, relativeTime, type Approval, type ChannelSummary, type FileHit, type Message, type Task } from "@/lib/client";
+import { usePref } from "@/lib/prefs";
+import { channelLabel, useApp } from "./app-context";
 import { MembersDialog, NewApprovalDialog, NewTaskDialog } from "./Dialogs";
-import { MessageBubble } from "./MessageBubble";
-import { Avatar, ChannelIcon } from "./ui";
+import { FileIcon, MessageBubble } from "./MessageBubble";
+import { Avatar, ChannelIcon, DEPARTMENT_LABELS, EmptyState, ErrorState, Kbd, Skeleton, StatusPill } from "./ui";
 
 type Page = { messages: Message[]; tasks: Task[]; approvals: Approval[]; serverTime: string };
 type PendingUpload = { id: string; file: File; preview?: string; progress: number; result?: Attachment; error?: string };
+type Member = { id: number; name: string; role: string; department: string | null; canApprove: boolean };
 
 const POLL_MS = 3000;
+const GROUP_GAP_MS = 5 * 60 * 1000;
 
 function kindOf(file: File): Attachment["type"] {
   if (file.type.startsWith("image/")) return "image";
@@ -20,37 +40,35 @@ function kindOf(file: File): Attachment["type"] {
   return "file";
 }
 
-export function ChatView({
-  channel,
-  me,
-  onBack,
-  onOpenDm,
-  onRead,
-}: {
-  channel: ChannelSummary;
-  me: Me;
-  onBack: () => void;
-  onOpenDm: (userId: number) => void;
-  onRead: () => void;
-}) {
+export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary; focusId?: number; onBack: () => void }) {
+  const { me, openDm, refresh, isSaved, toggleSaved, go } = useApp();
   const [messages, setMessages] = useState<Message[]>([]);
   const [tasks, setTasks] = useState<Record<number, Task>>({});
   const [approvals, setApprovals] = useState<Record<number, Approval>>({});
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState<null | "task" | "approval" | "members">(null);
+  const [taskSeed, setTaskSeed] = useState<{ title: string; description: string } | undefined>();
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [panelPref, setPanelPref] = usePref<boolean>("panel", true);
+  const [mobilePanel, setMobilePanel] = useState(false);
+  const [belowCount, setBelowCount] = useState(0);
+  const [initialUnread] = useState(channel.unread);
 
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const cursor = useRef<{ lastId: number; since: string | null }>({ lastId: 0, since: null });
   const readUpTo = useRef(0);
+  const firstScrollDone = useRef(false);
+
+  const isDm = channel.type === "dm";
+  const onRead = refresh;
 
   const mergeCards = useCallback((page: Pick<Page, "tasks" | "approvals">) => {
     if (page.tasks.length) setTasks((prev) => ({ ...prev, ...Object.fromEntries(page.tasks.map((t) => [t.id, t])) }));
-    if (page.approvals.length)
-      setApprovals((prev) => ({ ...prev, ...Object.fromEntries(page.approvals.map((a) => [a.id, a])) }));
+    if (page.approvals.length) setApprovals((prev) => ({ ...prev, ...Object.fromEntries(page.approvals.map((a) => [a.id, a])) }));
   }, []);
 
   const markRead = useCallback(() => {
@@ -63,17 +81,21 @@ export function ChatView({
     }
   }, [channel.id, onRead]);
 
-  const appendMessages = useCallback(
-    (incoming: Message[]) => {
-      if (!incoming.length) return;
-      setMessages((prev) => {
-        const seen = new Set(prev.map((m) => m.id));
-        return [...prev, ...incoming.filter((m) => !seen.has(m.id))];
-      });
-      cursor.current.lastId = Math.max(cursor.current.lastId, ...incoming.map((m) => m.id));
-    },
-    [],
-  );
+  const appendMessages = useCallback((incoming: Message[]) => {
+    if (!incoming.length) return;
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id));
+      return [...prev, ...incoming.filter((m) => !seen.has(m.id))];
+    });
+    cursor.current.lastId = Math.max(cursor.current.lastId, ...incoming.map((m) => m.id));
+    if (!stickToBottom.current) setBelowCount((n) => n + incoming.length);
+  }, []);
+
+  useEffect(() => {
+    api<{ members: Member[] }>(`/api/channels/${channel.id}/members`)
+      .then((r) => setMembers(r.members))
+      .catch(() => {});
+  }, [channel.id]);
 
   // Initial load + polling for this channel.
   useEffect(() => {
@@ -81,6 +103,7 @@ export function ChatView({
     cursor.current = { lastId: 0, since: null };
     readUpTo.current = 0;
     stickToBottom.current = true;
+    firstScrollDone.current = false;
     setMessages([]);
     setTasks({});
     setApprovals({});
@@ -103,7 +126,10 @@ export function ChatView({
         setLoading(false);
         markRead();
       } catch (e) {
-        if (!stopped) setError((e as Error).message);
+        if (!stopped) {
+          setError((e as Error).message);
+          setLoading(false);
+        }
       }
     }
     poll();
@@ -117,10 +143,50 @@ export function ChatView({
     };
   }, [channel.id, appendMessages, mergeCards, markRead]);
 
+  // Toggle the details panel with Ctrl/Cmd + "."
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+        e.preventDefault();
+        setPanelPref(!panelPref);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelPref, setPanelPref]);
+
+  // Index of the first unread message (from someone else) when the channel was opened.
+  const unreadFrom = useMemo(() => {
+    if (!initialUnread || loading) return -1;
+    let n = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.userId !== me.id) n++;
+      if (n === initialUnread) return i;
+    }
+    return -1;
+  }, [initialUnread, loading, messages, me.id]);
+
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [messages, tasks, approvals]);
+    if (!el || loading) return;
+    if (!firstScrollDone.current) {
+      firstScrollDone.current = true;
+      const focus = focusId ? document.getElementById(`m-${focusId}`) : null;
+      if (focus) {
+        el.scrollTop = Math.max(0, focus.offsetTop - el.clientHeight / 3);
+        focus.animate([{ background: "var(--accent-soft)" }, { background: "transparent" }], { duration: 2000 });
+        stickToBottom.current = false;
+        return;
+      }
+      const marker = el.querySelector("[data-unread-marker]") as HTMLElement | null;
+      if (marker && marker.offsetTop < el.scrollHeight - el.clientHeight) {
+        el.scrollTop = Math.max(0, marker.offsetTop - 48);
+        stickToBottom.current = false;
+        return;
+      }
+    }
+    if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages, tasks, approvals, loading, focusId]);
 
   async function loadOlder() {
     const first = messages[0];
@@ -139,104 +205,238 @@ export function ChatView({
   function onScroll() {
     const el = scroller.current!;
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (stickToBottom.current && belowCount) setBelowCount(0);
     if (el.scrollTop < 40 && hasMore && !loading) loadOlder();
   }
 
-  const isDm = channel.type === "dm";
+  function jumpToBottom() {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    stickToBottom.current = true;
+    setBelowCount(0);
+  }
+
+  const title = isDm ? channel.name : channelLabel(channel);
+  const subtitle = isDm
+    ? "Direct message"
+    : channel.type === "general"
+      ? `Company-wide · ${members.length || "–"} members`
+      : `${channel.cityName ?? ""} · ${DEPARTMENT_LABELS[channel.type] ?? "Channel"} department · ${members.length || "–"} members`;
+
+  const saveMessage = (m: Message) =>
+    toggleSaved({
+      id: m.id,
+      channelId: channel.id,
+      channelName: title,
+      userName: m.userName,
+      body: m.body,
+      createdAt: m.createdAt,
+      hasAttachments: m.attachments.length > 0,
+    });
+
+  const channelTasks = Object.values(tasks).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || b.id - a.id);
+  const channelApprovals = Object.values(approvals).sort((a, b) => Number(a.status !== "pending") - Number(b.status !== "pending") || b.id - a.id);
+
+  const panel = (
+    <ContextPanel
+      channel={channel}
+      title={title}
+      members={members}
+      tasks={channelTasks}
+      approvals={channelApprovals}
+      onClose={() => (mobilePanel ? setMobilePanel(false) : setPanelPref(false))}
+      onMembers={() => setDialog("members")}
+      onDm={(uid) => uid !== me.id && openDm(uid)}
+      onJump={(id) => {
+        setMobilePanel(false);
+        const el = document.getElementById(`m-${id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.animate([{ background: "var(--accent-soft)" }, { background: "transparent" }], { duration: 1600 });
+        }
+      }}
+      onAllFiles={() => go({ kind: "files" })}
+    />
+  );
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b bg-white px-3 py-2.5">
-        <button className="btn-ghost p-1 md:hidden" onClick={onBack} aria-label="Back">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        {isDm ? (
-          <Avatar name={channel.name} size={38} />
-        ) : (
-          <div className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-brand-50 text-brand-700">
-            <ChannelIcon type={channel.type} className="h-5 w-5" />
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{channel.name}</div>
-          <div className="truncate text-xs text-slate-500">
-            {isDm ? "Direct message" : channel.cityName ? `${channel.cityName} group` : "Company-wide"}
-            {!channel.isMember && " · viewing as admin"}
-          </div>
-        </div>
-        {!isDm && (
-          <button className="btn-ghost p-2" onClick={() => setDialog("members")} aria-label="Members">
-            <Users className="h-5 w-5" />
+    <div className="flex h-full min-h-0 min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 md:px-6">
+          <button className="btn-ghost -ml-1 p-1.5 md:hidden" onClick={onBack} aria-label="Back to conversations">
+            <ArrowLeft className="h-5 w-5" />
           </button>
-        )}
-      </header>
+          {isDm ? (
+            <Avatar name={channel.name} size={32} />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface-2 text-ink-2">
+              <ChannelIcon type={channel.type} className="h-4 w-4" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate font-display text-[15px] font-bold">{title}</h1>
+              {!channel.isMember && <span className="rounded border border-line px-1.5 text-[10.5px] font-medium text-ink-3">Viewing as admin</span>}
+            </div>
+            <div className="truncate text-[12px] text-ink-3">{subtitle}</div>
+          </div>
+          {!isDm && members.length > 0 && (
+            <button className="hidden items-center -space-x-1.5 sm:flex" onClick={() => setDialog("members")} aria-label="Members" title="Members">
+              {members.slice(0, 4).map((m) => (
+                <Avatar key={m.id} name={m.name} size={22} ring />
+              ))}
+              {members.length > 4 && (
+                <span className="flex h-[22px] min-w-[22px] items-center justify-center rounded-md bg-surface-3 px-1 text-[10px] font-medium text-ink-2 ring-2 ring-surface">
+                  +{members.length - 4}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            className={`btn-ghost hidden p-2 lg:inline-flex ${panelPref ? "bg-surface-2 text-ink" : ""}`}
+            onClick={() => setPanelPref(!panelPref)}
+            aria-label="Toggle details panel"
+            aria-pressed={panelPref}
+            title="Details (Ctrl + .)"
+          >
+            <PanelRight className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </button>
+          <button className="btn-ghost p-2 lg:hidden" onClick={() => setMobilePanel(true)} aria-label="Details">
+            <PanelRight className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </button>
+        </header>
 
-      <div ref={scroller} onScroll={onScroll} className="chat-bg flex-1 overflow-y-auto pb-3">
-        {loading && (
-          <div className="flex justify-center p-6">
-            <LoaderCircle className="h-6 w-6 animate-spin text-slate-400" />
+        <div className="relative min-h-0 flex-1">
+          <div ref={scroller} onScroll={onScroll} className="scroll-thin absolute inset-0 overflow-y-auto pt-2 pb-4">
+            {loading && <Skeleton rows={6} />}
+            {!loading && hasMore && messages.length > 0 && (
+              <div className="flex justify-center py-2">
+                <LoaderCircle className="h-4 w-4 animate-spin text-ink-4" />
+              </div>
+            )}
+            {!loading && !hasMore && messages.length > 0 && (
+              <div className="px-4 pt-6 pb-2 md:px-6">
+                <div className="font-display text-[18px] font-bold">{isDm ? channel.name : title}</div>
+                <p className="text-[13px] text-ink-3">
+                  {isDm ? `This is the beginning of your conversation with ${channel.name}.` : `This is the beginning of ${title}.`}
+                </p>
+              </div>
+            )}
+            {!loading && messages.length === 0 && !error && (
+              <EmptyState
+                motif={isDm ? "light" : "membrane"}
+                title={isDm ? `Start a conversation with ${channel.name}` : `Welcome to ${title}`}
+                body="Share an update, attach a drawing, create an action item or request a costing approval."
+              />
+            )}
+            {error && messages.length === 0 && <ErrorState message={error} />}
+            {messages.map((m, i) => {
+              const prev = messages[i - 1];
+              const newDay = !prev || new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString();
+              const isUnreadStart = i === unreadFrom;
+              const showHeader =
+                newDay ||
+                isUnreadStart ||
+                !prev ||
+                prev.userId !== m.userId ||
+                prev.kind !== "text" ||
+                m.kind !== "text" ||
+                new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() > GROUP_GAP_MS;
+              return (
+                <div key={m.id}>
+                  {newDay && (
+                    <div className="sticky top-0 z-[5] my-2 flex items-center gap-3 px-4 md:px-6">
+                      <div className="h-px flex-1 bg-line" />
+                      <span className="rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-2">{dayLabel(m.createdAt)}</span>
+                      <div className="h-px flex-1 bg-line" />
+                    </div>
+                  )}
+                  {isUnreadStart && (
+                    <div data-unread-marker className="my-1 flex items-center gap-2 px-4 md:px-6" role="separator" aria-label="New messages">
+                      <div className="h-px flex-1 bg-danger/60" />
+                      <span className="text-[10.5px] font-semibold tracking-wider text-danger uppercase">New</span>
+                    </div>
+                  )}
+                  <MessageBubble
+                    m={m}
+                    me={me}
+                    isDm={isDm}
+                    showHeader={showHeader}
+                    saved={isSaved(m.id)}
+                    task={m.kind === "task" && m.taskId ? tasks[m.taskId] : undefined}
+                    approval={m.kind === "approval" && m.approvalId ? approvals[m.approvalId] : undefined}
+                    onTask={(t) => setTasks((p) => ({ ...p, [t.id]: t }))}
+                    onApproval={(a) => setApprovals((p) => ({ ...p, [a.id]: a }))}
+                    onReply={(msg) => setReplyTo(msg)}
+                    onSave={saveMessage}
+                    onMakeTask={
+                      channel.isMember
+                        ? (msg) => {
+                            const line = msg.body.split("\n")[0]!.slice(0, 120);
+                            setTaskSeed({ title: line || "Follow up", description: `From ${msg.userName}: ${msg.body}`.slice(0, 4000) });
+                            setDialog("task");
+                          }
+                        : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {belowCount > 0 && (
+            <button
+              onClick={jumpToBottom}
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-lg bg-graphite px-3 py-1.5 text-[12px] font-medium text-white shadow-lg"
+            >
+              <ArrowDown className="h-3.5 w-3.5 text-lime" /> {belowCount} new message{belowCount > 1 ? "s" : ""}
+            </button>
+          )}
+        </div>
+
+        {error && messages.length > 0 && <div className="border-t border-danger/30 bg-danger-soft px-4 py-1.5 text-xs text-danger">Connection issue: {error}. Retrying…</div>}
+        {channel.isMember ? (
+          <Composer
+            channelId={channel.id}
+            placeholder={isDm ? `Message ${channel.name}` : `Message ${title}`}
+            members={members.filter((m) => m.id !== me.id)}
+            replyTo={replyTo}
+            clearReply={() => setReplyTo(null)}
+            onSent={(m) => {
+              stickToBottom.current = true;
+              appendMessages([m]);
+            }}
+            onAction={(a) => {
+              setTaskSeed(undefined);
+              setDialog(a);
+            }}
+          />
+        ) : (
+          <div className="border-t border-line bg-surface-2 p-3 text-center text-[13px] text-ink-3">
+            You are viewing this channel as an admin. Add yourself as a member from Administration to post.
           </div>
         )}
-        {!loading && messages.length === 0 && (
-          <div className="mx-auto mt-10 max-w-xs rounded-xl bg-white/90 p-4 text-center text-sm text-slate-600 shadow-sm">
-            No messages yet. Say hello, share a photo, assign a task or request a costing approval.
-          </div>
-        )}
-        {messages.map((m, i) => {
-          const prev = messages[i - 1];
-          const showHeader =
-            !prev ||
-            prev.userId !== m.userId ||
-            prev.kind !== "text" ||
-            new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() > 5 * 60 * 1000;
-          return (
-            <MessageBubble
-              key={m.id}
-              m={m}
-              me={me}
-              isDm={isDm}
-              showHeader={showHeader}
-              task={m.kind === "task" && m.taskId ? tasks[m.taskId] : undefined}
-              approval={m.kind === "approval" && m.approvalId ? approvals[m.approvalId] : undefined}
-              onTask={(t) => setTasks((p) => ({ ...p, [t.id]: t }))}
-              onApproval={(a) => setApprovals((p) => ({ ...p, [a.id]: a }))}
-              onReply={(msg) => setReplyTo(msg)}
-            />
-          );
-        })}
       </div>
 
-      {error && <div className="bg-red-50 px-3 py-1 text-xs text-red-700">{error}</div>}
-      {channel.isMember ? (
-        <Composer
-          channelId={channel.id}
-          replyTo={replyTo}
-          clearReply={() => setReplyTo(null)}
-          onSent={(m) => {
-            stickToBottom.current = true;
-            appendMessages([m]);
-          }}
-          onAction={(a) => setDialog(a)}
-        />
-      ) : (
-        <div className="border-t bg-white p-3 text-center text-sm text-slate-500">
-          You are viewing this group as an admin. Add yourself as a member from the Admin page to post.
+      {panelPref && <aside className="hidden w-[320px] shrink-0 animate-panel-in border-l border-line bg-canvas lg:flex">{panel}</aside>}
+      {mobilePanel && (
+        <div className="fixed inset-0 z-40 flex justify-end bg-graphite/40 lg:hidden" onClick={() => setMobilePanel(false)}>
+          <aside className="flex h-full w-[90%] max-w-sm animate-panel-in bg-canvas shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {panel}
+          </aside>
         </div>
       )}
 
       {dialog === "task" && (
         <NewTaskDialog
           channelId={channel.id}
+          initial={taskSeed}
           onClose={() => setDialog(null)}
           onCreated={(t) => setTasks((p) => ({ ...p, [t.id]: t }))}
         />
       )}
       {dialog === "approval" && (
-        <NewApprovalDialog
-          channelId={channel.id}
-          onClose={() => setDialog(null)}
-          onCreated={(a) => setApprovals((p) => ({ ...p, [a.id]: a }))}
-        />
+        <NewApprovalDialog channelId={channel.id} onClose={() => setDialog(null)} onCreated={(a) => setApprovals((p) => ({ ...p, [a.id]: a }))} />
       )}
       {dialog === "members" && (
         <MembersDialog
@@ -244,7 +444,7 @@ export function ChatView({
           onClose={() => setDialog(null)}
           onMessage={(uid) => {
             setDialog(null);
-            if (uid !== me.id) onOpenDm(uid);
+            if (uid !== me.id) openDm(uid);
           }}
         />
       )}
@@ -252,14 +452,241 @@ export function ChatView({
   );
 }
 
+/* ---------- Right-hand context panel ---------- */
+
+function PanelSection({
+  icon,
+  title,
+  count,
+  action,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  count?: number;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section className="border-b border-line">
+      <div className="flex h-10 items-center gap-2 px-4">
+        <button className="flex flex-1 items-center gap-2 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span className="text-ink-3">{icon}</span>
+          <span className="eyebrow">{title}</span>
+          {count !== undefined && <span className="text-[11px] text-ink-4 tabular-nums">{count}</span>}
+        </button>
+        {action}
+      </div>
+      {open && <div className="px-4 pb-3">{children}</div>}
+    </section>
+  );
+}
+
+function ContextPanel({
+  channel,
+  title,
+  members,
+  tasks,
+  approvals,
+  onClose,
+  onMembers,
+  onDm,
+  onJump,
+  onAllFiles,
+}: {
+  channel: ChannelSummary;
+  title: string;
+  members: Member[];
+  tasks: Task[];
+  approvals: Approval[];
+  onClose: () => void;
+  onMembers: () => void;
+  onDm: (userId: number) => void;
+  onJump: (messageId: number) => void;
+  onAllFiles: () => void;
+}) {
+  const { saved, go } = useApp();
+  const [files, setFiles] = useState<FileHit[] | null>(null);
+  useEffect(() => {
+    api<{ files: FileHit[] }>(`/api/files?channelId=${channel.id}`)
+      .then((r) => setFiles(r.files))
+      .catch(() => setFiles([]));
+  }, [channel.id]);
+  const keyMessages = saved.filter((s) => s.channelId === channel.id);
+  const isDm = channel.type === "dm";
+  const ic = "h-3.5 w-3.5";
+
+  return (
+    <div className="scroll-thin flex min-h-0 w-full flex-col overflow-y-auto">
+      <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
+        <div className="min-w-0 flex-1">
+          <div className="eyebrow">Details</div>
+          <div className="truncate text-[13px] font-semibold">{title}</div>
+        </div>
+        <button className="btn-ghost p-1.5" onClick={onClose} aria-label="Close details">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {!isDm && (
+        <div className="grid grid-cols-2 gap-px border-b border-line bg-line">
+          {[
+            ["Location", channel.cityName ?? "All cities"],
+            ["Department", DEPARTMENT_LABELS[channel.type] ?? "—"],
+          ].map(([k, v]) => (
+            <div key={k} className="bg-canvas px-4 py-2.5">
+              <div className="text-[10.5px] font-medium tracking-wider text-ink-4 uppercase">{k}</div>
+              <div className="truncate text-[13px] font-medium">{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <PanelSection icon={<Bookmark className={ic} />} title="Key messages" count={keyMessages.length}>
+        {keyMessages.length === 0 ? (
+          <p className="text-[12.5px] text-ink-3">Save important decisions and instructions from this conversation to find them here without scrolling.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {keyMessages.slice(0, 6).map((s) => (
+              <li key={s.id}>
+                <button onClick={() => onJump(s.id)} className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-left hover:border-line-strong">
+                  <div className="text-[11px] text-ink-3">
+                    {s.userName} · {relativeTime(s.createdAt)}
+                  </div>
+                  <div className="line-clamp-2 text-[12.5px]">{s.body || "Attachment"}</div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PanelSection>
+
+      <PanelSection
+        icon={<ListChecks className={ic} />}
+        title="Action items"
+        count={tasks.filter((t) => t.status !== "done").length}
+        action={
+          <button className="text-[11.5px] font-medium text-ink-3 hover:text-ink" onClick={() => go({ kind: "tasks" })}>
+            All
+          </button>
+        }
+      >
+        {tasks.length === 0 ? (
+          <p className="text-[12.5px] text-ink-3">No action items in the loaded history. Hover a message and choose “Create action item”.</p>
+        ) : (
+          <ul className="space-y-1">
+            {tasks.slice(0, 8).map((t) => {
+              const overdue = t.dueAt && t.status !== "done" && new Date(t.dueAt) < new Date();
+              return (
+                <li key={t.id} className="flex items-start gap-2 rounded-lg px-1 py-1.5">
+                  <SquareCheck className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${t.status === "done" ? "text-positive" : "text-ink-4"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className={`truncate text-[12.5px] ${t.status === "done" ? "text-ink-3 line-through" : "font-medium"}`}>{t.title}</div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
+                      {t.assigneeName}
+                      {t.dueAt && <span className={overdue ? "font-medium text-danger" : ""}>· {overdue ? "overdue" : "due"} {relativeTime(t.dueAt)}</span>}
+                    </div>
+                  </div>
+                  <StatusPill status={overdue ? "overdue" : t.status} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </PanelSection>
+
+      {approvals.length > 0 && (
+        <PanelSection icon={<BadgeCheck className={ic} />} title="Costing approvals" count={approvals.filter((a) => a.status === "pending").length}>
+          <ul className="space-y-1">
+            {approvals.slice(0, 6).map((a) => (
+              <li key={a.id} className="flex items-center gap-2 py-1">
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{a.title}</span>
+                <StatusPill status={a.status} />
+              </li>
+            ))}
+          </ul>
+        </PanelSection>
+      )}
+
+      <PanelSection
+        icon={<FolderOpen className={ic} />}
+        title="Shared files"
+        count={files?.length}
+        action={
+          <button className="text-[11.5px] font-medium text-ink-3 hover:text-ink" onClick={onAllFiles}>
+            All
+          </button>
+        }
+      >
+        {!files && <div className="h-10 animate-pulse rounded-lg bg-surface-2" />}
+        {files?.length === 0 && <p className="text-[12.5px] text-ink-3">Drawings, PDFs and photos shared here will be collected in this list.</p>}
+        <ul className="space-y-0.5">
+          {files?.slice(0, 6).map((f) => (
+            <li key={`${f.messageId}-${f.url}`}>
+              <a href={f.url} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-lg px-1 py-1.5 hover:bg-surface-2">
+                {f.type === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={f.url} alt="" className="h-8 w-8 shrink-0 rounded-md border border-line object-cover" />
+                ) : (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-surface text-ink-3">
+                    <FileIcon name={f.name} type={f.type} />
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className="block truncate text-[12.5px] font-medium">{f.name}</span>
+                  <span className="text-[11px] text-ink-3">
+                    {fileSize(f.size)} · {relativeTime(f.createdAt)}
+                  </span>
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </PanelSection>
+
+      <PanelSection
+        icon={<Users className={ic} />}
+        title="Participants"
+        count={members.length}
+        action={
+          !isDm && (
+            <button className="text-[11.5px] font-medium text-ink-3 hover:text-ink" onClick={onMembers}>
+              View all
+            </button>
+          )
+        }
+      >
+        <ul className="space-y-0.5">
+          {members.slice(0, 10).map((m) => (
+            <li key={m.id}>
+              <button onClick={() => onDm(m.id)} className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left hover:bg-surface-2">
+                <Avatar name={m.name} size={24} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px]">{m.name}</span>
+                <span className="text-[11px] text-ink-4 capitalize">{m.canApprove ? "Approver" : m.role !== "member" ? m.role : ""}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </PanelSection>
+    </div>
+  );
+}
+
+/* ---------- Composer ---------- */
+
 function Composer({
   channelId,
+  placeholder,
+  members,
   replyTo,
   clearReply,
   onSent,
   onAction,
 }: {
   channelId: number;
+  placeholder: string;
+  members: Member[];
   replyTo: Message | null;
   clearReply: () => void;
   onSent: (m: Message) => void;
@@ -270,6 +697,7 @@ function Composer({
   const [menu, setMenu] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [mention, setMention] = useState<{ q: string; start: number; sel: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
@@ -278,8 +706,40 @@ function Composer({
     setText(sessionStorageGet(`draft:${channelId}`));
     setUploads([]);
     setError("");
+    setMention(null);
   }, [channelId]);
   useEffect(() => sessionStorageSet(`draft:${channelId}`, text), [channelId, text]);
+  useEffect(() => {
+    if (replyTo) textarea.current?.focus();
+  }, [replyTo]);
+
+  const suggestions = useMemo(() => {
+    if (!mention) return [];
+    const q = mention.q.toLowerCase();
+    const people = members.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 6);
+    const special = ["everyone"].filter((s) => s.startsWith(q)).map((s) => ({ id: -1, name: s, role: "", department: null, canApprove: false }));
+    return [...people, ...special];
+  }, [mention, members]);
+
+  function updateMention(value: string, caret: number) {
+    const before = value.slice(0, caret);
+    const m = /(^|\s)@([\p{L}\d_.-]*)$/u.exec(before);
+    setMention(m ? { q: m[2]!, start: caret - m[2]!.length - 1, sel: 0 } : null);
+  }
+
+  function insertMention(name: string) {
+    if (!mention) return;
+    const token = `@${name.split(/\s+/)[0]} `;
+    const caret = textarea.current?.selectionStart ?? text.length;
+    const next = text.slice(0, mention.start) + token + text.slice(caret);
+    setText(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      const pos = mention.start + token.length;
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(pos, pos);
+    });
+  }
 
   function addFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -297,18 +757,13 @@ function Composer({
         handleUploadUrl: "/api/upload",
         multipart: item.file.size > 20 * 1024 * 1024,
         contentType: item.file.type || undefined,
-        onUploadProgress: ({ percentage }) =>
-          setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, progress: percentage } : x))),
+        onUploadProgress: ({ percentage }) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, progress: percentage } : x))),
       })
         .then((blob) =>
           setUploads((u) =>
             u.map((x) =>
               x.id === item.id
-                ? {
-                    ...x,
-                    progress: 100,
-                    result: { url: blob.url, type: kindOf(item.file), name: item.file.name, size: item.file.size },
-                  }
+                ? { ...x, progress: 100, result: { url: blob.url, type: kindOf(item.file), name: item.file.name, size: item.file.size } }
                 : x,
             ),
           ),
@@ -346,103 +801,209 @@ function Composer({
 
   return (
     <div
-      className="border-t bg-[#f0f2f5] px-2 py-2"
+      className="shrink-0 bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pb-4"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
         addFiles(e.dataTransfer.files);
       }}
     >
-      {replyTo && (
-        <div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-brand-500 bg-white px-3 py-1.5 text-xs">
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-brand-700">Replying to {replyTo.userName}</div>
-            <div className="truncate text-slate-600">{replyTo.body || "📎 Attachment"}</div>
-          </div>
-          <button onClick={clearReply} aria-label="Cancel reply">
-            <X className="h-4 w-4 text-slate-500" />
-          </button>
-        </div>
-      )}
-      {uploads.length > 0 && (
-        <div className="mb-2 flex gap-2 overflow-x-auto">
-          {uploads.map((u) => (
-            <div key={u.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
-              {u.preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={u.preview} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full items-center justify-center p-1 text-center text-[10px] break-all text-slate-600">
-                  {u.file.type.startsWith("video/") ? "🎥 " : "📄 "}
-                  {u.file.name}
-                </div>
-              )}
-              {!u.result && !u.error && (
-                <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/20">
-                  <div className="h-full bg-brand-500" style={{ width: `${u.progress}%` }} />
-                </div>
-              )}
-              {u.error && <div className="absolute inset-0 flex items-center justify-center bg-red-600/80 p-1 text-center text-[10px] text-white">{u.error}</div>}
+      <div className="relative rounded-xl border border-line-strong bg-surface transition-colors focus-within:border-ink-3 focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--teal)_12%,transparent)]">
+        {mention && suggestions.length > 0 && (
+          <div className="absolute bottom-full left-2 z-20 mb-2 w-64 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lg" role="listbox">
+            <div className="eyebrow px-2 pt-1 pb-1 text-[10px]">Mention</div>
+            {suggestions.map((s, i) => (
               <button
-                className="absolute top-0.5 right-0.5 rounded-full bg-black/60 p-0.5 text-white"
-                onClick={() => setUploads((x) => x.filter((y) => y.id !== u.id))}
-                aria-label="Remove"
+                key={`${s.id}-${s.name}`}
+                role="option"
+                aria-selected={i === mention.sel}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(s.name);
+                }}
+                className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${i === mention.sel ? "bg-surface-2" : ""}`}
               >
-                <X className="h-3 w-3" />
+                {s.id === -1 ? <AtSign className="h-4 w-4 text-ink-3" /> : <Avatar name={s.name} size={20} />}
+                <span className="truncate">{s.id === -1 ? "everyone — notify the channel" : s.name}</span>
               </button>
+            ))}
+          </div>
+        )}
+        {replyTo && (
+          <div className="flex items-start gap-2 border-b border-line px-3 py-2 text-[12.5px]">
+            <div className="min-w-0 flex-1 border-l-2 border-lime pl-2">
+              <div className="font-medium">Replying to {replyTo.userName}</div>
+              <div className="truncate text-ink-3">{replyTo.body || "Attachment"}</div>
             </div>
-          ))}
-        </div>
-      )}
-      {error && <p className="mb-1 text-xs text-red-600">{error}</p>}
-      <div className="flex items-end gap-1.5">
-        <div className="relative">
-          <button className="btn-ghost rounded-full p-2" onClick={() => setMenu(!menu)} aria-label="More actions">
-            <Plus className="h-5 w-5" />
-          </button>
-          {menu && (
-            <div className="absolute bottom-12 left-0 z-20 w-56 overflow-hidden rounded-xl border bg-white shadow-lg">
-              <button className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-slate-50" onClick={() => { setMenu(false); onAction("task"); }}>
-                <SquareCheck className="h-4 w-4 text-indigo-600" /> Assign a task
-              </button>
-              <button className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-slate-50" onClick={() => { setMenu(false); onAction("approval"); }}>
-                <BadgeCheck className="h-4 w-4 text-amber-600" /> Request costing approval
-              </button>
-            </div>
-          )}
-        </div>
-        <button className="btn-ghost rounded-full p-2" onClick={() => fileInput.current?.click()} aria-label="Attach photo or video">
-          <Paperclip className="h-5 w-5" />
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-          onChange={(e) => addFiles(e.target.files)}
-        />
+            <button onClick={clearReply} className="rounded p-0.5 text-ink-3 hover:bg-surface-2" aria-label="Cancel reply">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        {uploads.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto border-b border-line p-2">
+            {uploads.map((u) => (
+              <div key={u.id} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-surface-2">
+                {u.preview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={u.preview} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-0.5 p-1 text-center text-[9.5px] break-all text-ink-2">
+                    <FileIcon name={u.file.name} type={kindOf(u.file)} />
+                    <span className="line-clamp-2">{u.file.name}</span>
+                  </div>
+                )}
+                {!u.result && !u.error && (
+                  <div className="absolute inset-x-0 bottom-0 h-1 bg-graphite/20">
+                    <div className="h-full bg-lime transition-[width]" style={{ width: `${u.progress}%` }} />
+                  </div>
+                )}
+                {u.error && <div className="absolute inset-0 flex items-center justify-center bg-danger/85 p-1 text-center text-[9.5px] text-white">{u.error}</div>}
+                <button
+                  className="absolute top-0.5 right-0.5 rounded-md bg-graphite/70 p-0.5 text-white"
+                  onClick={() => setUploads((x) => x.filter((y) => y.id !== u.id))}
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textarea}
           rows={1}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            updateMention(e.target.value, e.target.selectionStart);
+          }}
+          onBlur={() => setTimeout(() => setMention(null), 100)}
           onPaste={(e) => e.clipboardData.files.length && addFiles(e.clipboardData.files)}
           onKeyDown={(e) => {
+            if (mention && suggestions.length) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const d = e.key === "ArrowDown" ? 1 : -1;
+                setMention({ ...mention, sel: (mention.sel + d + suggestions.length) % suggestions.length });
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                insertMention(suggestions[mention.sel]!.name);
+                return;
+              }
+              if (e.key === "Escape") {
+                setMention(null);
+                return;
+              }
+            }
+            if (e.key === "Escape" && replyTo) clearReply();
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               send();
             }
           }}
-          placeholder="Type a message"
-          className="max-h-40 min-h-[42px] flex-1 resize-none rounded-2xl border-0 bg-white px-4 py-2.5 text-[15px] outline-none"
+          placeholder={placeholder}
+          aria-label={placeholder}
+          className="block max-h-48 min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-[1.5] outline-none placeholder:text-ink-4"
           style={{ fieldSizing: "content" } as React.CSSProperties}
         />
-        <button className="btn-primary h-[42px] w-[42px] rounded-full p-0" disabled={!canSend} onClick={send} aria-label="Send">
-          {sending || uploading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-        </button>
+        <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+          <div className="relative">
+            <ComposerButton label="More actions" onClick={() => setMenu(!menu)} active={menu}>
+              <Plus className="h-[18px] w-[18px]" />
+            </ComposerButton>
+            {menu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+                <div className="absolute bottom-10 left-0 z-20 w-64 animate-fade-in overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lg">
+                  <MenuAction
+                    icon={<SquareCheck className="h-4 w-4" />}
+                    title="Create action item"
+                    hint="Owner, due date and reminders"
+                    onClick={() => {
+                      setMenu(false);
+                      onAction("task");
+                    }}
+                  />
+                  <MenuAction
+                    icon={<BadgeCheck className="h-4 w-4" />}
+                    title="Request costing approval"
+                    hint="Quote, cost and margin"
+                    onClick={() => {
+                      setMenu(false);
+                      onAction("approval");
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <ComposerButton label="Attach drawings, PDFs or photos" onClick={() => fileInput.current?.click()}>
+            <Paperclip className="h-[18px] w-[18px]" />
+          </ComposerButton>
+          <ComposerButton
+            label="Mention someone"
+            onClick={() => {
+              const next = `${text}${text && !text.endsWith(" ") ? " " : ""}@`;
+              setText(next);
+              setMention({ q: "", start: next.length - 1, sel: 0 });
+              textarea.current?.focus();
+            }}
+          >
+            <AtSign className="h-[18px] w-[18px]" />
+          </ComposerButton>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.dwg,.dxf,.dwf,.skp,.ppt,.pptx,.zip"
+            onChange={(e) => addFiles(e.target.files)}
+          />
+          <span className="ml-auto hidden items-center gap-1 pr-2 text-[11px] text-ink-4 sm:flex">
+            <Kbd>Shift</Kbd>
+            <Kbd>↵</Kbd> new line
+          </span>
+          <button
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${canSend ? "bg-graphite text-lime hover:bg-[#22333f]" : "bg-surface-2 text-ink-4"}`}
+            disabled={!canSend}
+            onClick={send}
+            aria-label="Send message"
+          >
+            {sending || uploading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
+      {error && <p className="mt-1.5 text-xs text-danger">Not sent: {error}</p>}
     </div>
+  );
+}
+
+function ComposerButton({ label, onClick, active, children }: { label: string; onClick: () => void; active?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-surface-2 hover:text-ink ${active ? "bg-surface-2 text-ink" : "text-ink-3"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MenuAction({ icon, title, hint, onClick }: { icon: React.ReactNode; title: string; hint: string; onClick: () => void }) {
+  return (
+    <button className="flex w-full items-start gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-surface-2" onClick={onClick}>
+      <span className="mt-0.5 text-ink-2">{icon}</span>
+      <span>
+        <span className="block text-[13px] font-medium">{title}</span>
+        <span className="block text-[11.5px] text-ink-3">{hint}</span>
+      </span>
+    </button>
   );
 }
 

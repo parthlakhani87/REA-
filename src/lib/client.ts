@@ -93,3 +93,43 @@ export function avatarColor(seed: string) {
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) % 360;
   return `hsl(${h} 55% 45%)`;
 }
+
+export type { MessageHit, FileHit } from "./discover";
+
+export function dayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(Date.now() - 86400000);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", ...(d.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
+}
+
+export function clockTime(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function relativeTime(iso: string) {
+  const diff = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  const s = Math.abs(diff);
+  if (s < 60) return "just now";
+  const unit = s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : s < 7 * 86400 ? `${Math.floor(s / 86400)}d` : null;
+  if (!unit) return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+  return diff >= 0 ? `${unit} ago` : `in ${unit}`;
+}
+
+export function fileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Groups files the way site and design teams think about them.
+export function fileKind(name: string, type: string): "drawing" | "pdf" | "image" | "video" | "document" | "other" {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  if (["dwg", "dxf", "dwf", "skp", "rvt", "ifc", "3dm"].includes(ext)) return "drawing";
+  if (ext === "pdf") return "pdf";
+  if (type === "image") return "image";
+  if (type === "video") return "video";
+  if (["doc", "docx", "xls", "xlsx", "csv", "txt", "ppt", "pptx"].includes(ext)) return "document";
+  return "other";
+}
