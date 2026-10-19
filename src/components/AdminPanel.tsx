@@ -67,6 +67,7 @@ export function AdminPanel() {
         <h1 className="text-[13px] font-medium text-nav-ink-2">Administration</h1>
       </header>
       <div className="mx-auto max-w-5xl p-4 md:p-8">
+        <NotificationSwitch />
         <div className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
           {(
             [
@@ -628,5 +629,43 @@ function InviteDialog({ invite, onClose }: { invite: Invite; onClose: () => void
         </button>
       </div>
     </Modal>
+  );
+}
+
+// Company-wide pause for every notification (device push, in-app alerts and reminders).
+function NotificationSwitch() {
+  const [paused, setPaused] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<{ paused: boolean }>("/api/admin/notifications")
+      .then((r) => setPaused(r.paused))
+      .catch(() => {});
+  }, []);
+  if (paused === null) return null;
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      const r = await api<{ paused: boolean }>("/api/admin/notifications", { method: "POST", json: { paused: !paused } });
+      setPaused(r.paused);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`mb-6 flex flex-wrap items-center gap-3 rounded-xl border p-4 ${paused ? "border-warn/40 bg-warn-soft" : "border-line bg-surface"}`}>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-semibold">{paused ? "All notifications are paused" : "Notifications are on"}</div>
+        <div className="text-[12.5px] text-ink-2">
+          {paused
+            ? "Nobody receives phone notifications, alerts or task/approval reminders. Messages, tasks and approvals still work inside the app."
+            : "Employees receive phone notifications, in-app alerts and reminders for tasks and approvals."}
+        </div>
+      </div>
+      <button className={paused ? "btn-primary" : "btn-danger"} disabled={busy} onClick={toggle}>
+        {paused ? "Resume notifications" : "Pause all notifications"}
+      </button>
+    </div>
   );
 }

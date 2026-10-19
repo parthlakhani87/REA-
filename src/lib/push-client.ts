@@ -67,7 +67,7 @@ export async function enablePush(vapidKey: string): Promise<PushState> {
 }
 
 export async function sendTestPush() {
-  return api<{ sent: number; devices: number }>("/api/push/test", { method: "POST" });
+  return api<{ sent: number; devices: number; paused?: boolean }>("/api/push/test", { method: "POST" });
 }
 
 // Unread count on the home-screen icon (Android / iOS / desktop installed apps).

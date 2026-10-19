@@ -1,6 +1,7 @@
 import { inArray, eq } from "drizzle-orm";
 import webpush from "web-push";
 import { db, schema } from "@/db";
+import { notificationsPaused } from "./notification-switch";
 
 const { notifications, pushSubscriptions, appSettings } = schema;
 
@@ -41,7 +42,7 @@ export function getVapidKeys(): Promise<VapidKeys> {
 // Stores an in-app notification for each user and sends a push notification to their devices.
 export async function notifyUsers(userIds: number[], n: NotificationInput) {
   const ids = [...new Set(userIds)];
-  if (ids.length === 0) return;
+  if (ids.length === 0 || (await notificationsPaused())) return;
   await db.insert(notifications).values(
     ids.map((userId) => ({ userId, type: n.type, title: n.title, body: n.body ?? "", link: n.link ?? null })),
   );
@@ -50,7 +51,8 @@ export async function notifyUsers(userIds: number[], n: NotificationInput) {
 
 export async function sendPush(userIds: number[], n: NotificationInput) {
   let sent = 0;
-  if (userIds.length === 0) return { sent, devices: 0 };
+  if (userIds.length === 0) return { sent, devices: 0, paused: false };
+  if (await notificationsPaused()) return { sent, devices: 0, paused: true };
   await getVapidKeys();
   const subs = await db.select().from(pushSubscriptions).where(inArray(pushSubscriptions.userId, userIds));
   // Tag per conversation/link so a new message replaces the previous one from the same chat, like WhatsApp.
@@ -74,5 +76,5 @@ export async function sendPush(userIds: number[], n: NotificationInput) {
       }
     }),
   );
-  return { sent, devices: subs.length };
+  return { sent, devices: subs.length, paused: false };
 }

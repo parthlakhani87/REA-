@@ -6,6 +6,7 @@ import type { SavedMessage } from "@/lib/prefs";
 import type { PushState } from "@/lib/push-client";
 
 export type Sync = {
+  notificationsPaused?: boolean;
   channels: ChannelSummary[];
   unreadNotifications: number;
   openTasks: number;
