@@ -1,7 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { siteUrl } from "@/lib/site";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl()),
+  openGraph: {
+    type: "website",
+    siteName: "PONGS Connect",
+    title: "PONGS Connect — PONGS INDIA team app",
+    description: "Chats, site photos, action items and costing approvals for the PONGS team. Tap to sign in.",
+    url: "/",
+  },
+  twitter: { card: "summary_large_image" },
   title: "PONGS Connect",
   description: "Internal communication for PONGS INDIA — departments, projects, action items and CRM costing approvals.",
   appleWebApp: { capable: true, title: "PONGS Connect", statusBarStyle: "default" },

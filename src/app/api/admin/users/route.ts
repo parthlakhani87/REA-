@@ -49,6 +49,7 @@ export const POST = handler(async (req: Request) => {
       canApprove: input.canApprove ?? false,
       active: input.active ?? true,
       passwordHash: await bcrypt.hash(input.password, 10),
+      mustChangePassword: true,
     })
     .returning();
   if (input.channelIds) await setMemberships(user.id, input.channelIds);

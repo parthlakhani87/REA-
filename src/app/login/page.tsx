@@ -23,8 +23,8 @@ export default function LoginPage() {
     setBusy(true);
     setError("");
     try {
-      await api("/api/auth/login", { method: "POST", json: { email, password } });
-      router.replace("/app");
+      const r = await api<{ mustChangePassword: boolean }>("/api/auth/login", { method: "POST", json: { email, password } });
+      router.replace(r.mustChangePassword ? "/welcome" : "/app");
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -46,7 +46,9 @@ export default function LoginPage() {
         <button className="btn-primary w-full" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
-        <p className="text-center text-xs text-ink-3">Forgot your password? Ask your admin to reset it.</p>
+        <p className="text-center text-xs text-ink-3">
+          First time? Use the email and temporary password your admin sent you. Forgot your password? Ask your admin to reset it.
+        </p>
       </form>
     </AuthCard>
   );

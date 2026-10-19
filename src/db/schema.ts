@@ -47,6 +47,8 @@ export const users = pgTable("users", {
   canApprove: boolean("can_approve").notNull().default(false),
   active: boolean("active").notNull().default(true),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  // Set when an admin creates the account or resets the password; the person picks their own on first sign-in.
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
