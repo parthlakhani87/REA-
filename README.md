@@ -8,7 +8,9 @@ Internal communication app for PONGS — something between WhatsApp and Slack.
   - Until they **acknowledge** it, they're reminded on a fixed schedule (every 30 minutes by default). After 3 reminders the person who assigned it is alerted too.
   - Once it's acknowledged or started, they get **regular reminders to complete it** (every 4 hours by default) until it's marked done. Overdue tasks also alert the person who assigned it.
 - **Costing approvals from PONGS CRM.** The estimation team's quotations arrive as approval cards in the right city group, showing quote, cost, margin and the cost breakdown. Approvers get a notification right away and reminders until they decide. They can **Approve**, **Request changes** or **Reject** in one tap, and the decision is sent back to the CRM. Approvals can also be raised from inside the app.
-- **Notifications.** There's an in-app notification centre plus **push notifications** on phones and desktops. The app is installable as a PWA (*Add to Home Screen*).
+- **Phone app & device notifications.** PONGS Connect installs on Android and iPhone like a normal app (home-screen icon, full screen, unread badge on the icon). Reminders, approvals and messages arrive as **device notifications** on the lock screen even when the app is closed. Each person has a **Send a test notification** button in Settings.
+- **Search.** Search inside a conversation (🔍 in the chat header) or across everything (top search bar). Tapping a result opens the chat at that message, however old it is.
+- **Online / last seen.** A green dot shows who is online right now; otherwise you see "Last seen today at 10:32". Admins get an **Online activity** page showing each employee's online periods per day on a 24-hour timeline.
 - **Admin.** Admins add cities (groups are created automatically) and people (role, city, department, who can approve), and choose which groups each person belongs to.
 
 Built with Next.js 16 (App Router), Postgres (Drizzle ORM), Vercel Blob, Web Push and Vercel Cron.
@@ -24,7 +26,7 @@ Built with Next.js 16 (App Router), Postgres (Drizzle ORM), Vercel Blob, Web Pus
 3. **Set environment variables.** Go to **Settings → Environment Variables** (see `.env.example`):
    - `AUTH_SECRET`: run `openssl rand -base64 32`
    - `CRON_SECRET`: any random string
-   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`: run `npx web-push generate-vapid-keys`
+   - *(optional)* `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. If you leave these out, the app generates its own notification keys on first use and stores them in the database.
    - `CRM_API_KEY`, `CRM_WEBHOOK_SECRET`, and optionally `CRM_WEBHOOK_URL`
 4. **Deploy.** The build runs the database migrations automatically (`scripts/migrate.mjs`).
 5. **Set up the workspace.** Open `https://<your-app>.vercel.app/setup` to create the first admin account and your cities. Then add your people under **Admin**.
@@ -42,10 +44,14 @@ For reliable reminders even when nobody has the app open, do one of these:
   Authorization: Bearer <CRON_SECRET>
   ```
 
-### Push notifications on phones
+### Installing on phones (device notifications)
 
-- **Android / desktop Chrome, Edge, Firefox:** tap **Turn on notifications** in the sidebar.
-- **iPhone (iOS 16.4+):** open the site in Safari, tap **Share → Add to Home Screen**, open the app from the home screen, then turn on notifications.
+Each employee does this once per phone. The **Home** screen shows a "Get PONGS Connect on your phone" card that walks them through it.
+
+- **Android (Chrome):** open the site, tap **Install app** on the card (or browser menu ⋮ → **Install app**), then tap **Turn on notifications**.
+- **iPhone (iOS 16.4 or newer):** open the site in **Safari**, tap **Share → Add to Home Screen**, open PONGS Connect **from the Home Screen icon**, then tap **Turn on notifications**. Apple only allows notifications for apps added to the Home Screen.
+- **Check it works:** Settings → **Send a test notification**.
+- **Nothing arrives?** Check the phone's Settings → Notifications → PONGS Connect (or Chrome) is allowed, and that battery saver isn't blocking Chrome in the background.
 
 ---
 

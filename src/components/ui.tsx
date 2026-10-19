@@ -13,7 +13,7 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { initials } from "@/lib/client";
+import { initials, isOnlineNow, lastSeenLabel } from "@/lib/client";
 
 /* ---------- Identity ---------- */
 
@@ -384,5 +384,35 @@ export function highlight(text: string, q: string) {
     ) : (
       p
     ),
+  );
+}
+
+/* ---------- Presence ---------- */
+
+// Avatar with a green "online" dot (WhatsApp/Slack style). Offline shows no dot.
+export function PresenceAvatar({ name, size = 32, lastSeenAt }: { name: string; size?: number; lastSeenAt: string | null | undefined }) {
+  const online = isOnlineNow(lastSeenAt);
+  const dot = Math.max(8, Math.round(size * 0.3));
+  return (
+    <span className="relative inline-flex shrink-0" title={lastSeenLabel(lastSeenAt)}>
+      <Avatar name={name} size={size} />
+      {online && (
+        <span
+          className="absolute rounded-full bg-positive ring-2 ring-surface"
+          style={{ width: dot, height: dot, right: -2, bottom: -2 }}
+          aria-label="Online"
+        />
+      )}
+    </span>
+  );
+}
+
+export function PresenceText({ lastSeenAt, className = "" }: { lastSeenAt: string | null | undefined; className?: string }) {
+  const online = isOnlineNow(lastSeenAt);
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${online ? "text-positive" : "text-ink-3"} ${className}`}>
+      {online && <span className="h-1.5 w-1.5 rounded-full bg-positive" />}
+      {lastSeenLabel(lastSeenAt)}
+    </span>
   );
 }

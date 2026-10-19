@@ -4,10 +4,11 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { HttpError, handler, json, parseBody, requireUser } from "@/lib/api";
 import { publicUser } from "@/lib/auth";
+import { getVapidKeys } from "@/lib/notify";
 
 export const GET = handler(async () => {
   const user = await requireUser();
-  return json({ user: publicUser(user), vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null });
+  return json({ user: publicUser(user), vapidPublicKey: (await getVapidKeys()).publicKey });
 });
 
 const patch = z.object({

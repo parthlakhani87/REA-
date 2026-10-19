@@ -39,6 +39,7 @@ export type DirectoryUser = {
   department: string | null;
   canApprove: boolean;
   cityName: string | null;
+  lastSeenAt: string | null;
 };
 
 export async function api<T = unknown>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -132,4 +133,21 @@ export function fileKind(name: string, type: string): "drawing" | "pdf" | "image
   if (type === "video") return "video";
   if (["doc", "docx", "xls", "xlsx", "csv", "txt", "ppt", "pptx"].includes(ext)) return "document";
   return "other";
+}
+
+// Presence: a user is online if their app checked in within the last minute (see src/lib/presence.ts).
+export const ONLINE_WINDOW_MS = 60_000;
+
+export function isOnlineNow(lastSeenAt: string | null | undefined) {
+  return !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < ONLINE_WINDOW_MS;
+}
+
+export function lastSeenLabel(lastSeenAt: string | null | undefined) {
+  if (!lastSeenAt) return "Not signed in yet";
+  if (isOnlineNow(lastSeenAt)) return "Online";
+  const d = new Date(lastSeenAt);
+  const day = dayLabel(lastSeenAt);
+  const at = clockTime(lastSeenAt);
+  if (day === "Today" || day === "Yesterday") return `Last seen ${day.toLowerCase()} at ${at}`;
+  return `Last seen ${d.toLocaleDateString([], { day: "numeric", month: "short" })} at ${at}`;
 }

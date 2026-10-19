@@ -39,13 +39,15 @@ import {
   type Message,
   type MessageHit,
   type Task,
+  isOnlineNow,
 } from "@/lib/client";
-import { enablePush, type PushState } from "@/lib/push-client";
+import { type PushState } from "@/lib/push-client";
+import { DeviceSetupCard } from "./DeviceSetup";
 import { applyTheme, currentTheme, usePref, type ThemeChoice } from "@/lib/prefs";
 import { channelLabel, useApp } from "./app-context";
 import { ShortcutsDialog } from "./CommandPalette";
 import { FileIcon, RichText } from "./MessageBubble";
-import { Avatar, Badge, ChannelIcon, DEPARTMENT_LABELS, EmptyState, ErrorState, Kbd, Motif, PageHeader, Section, Skeleton, StatusPill, Tabs, highlight } from "./ui";
+import { Avatar, Badge, ChannelIcon, DEPARTMENT_LABELS, EmptyState, ErrorState, Kbd, Motif, PageHeader, PresenceAvatar, PresenceText, Section, Skeleton, StatusPill, Tabs, highlight } from "./ui";
 
 /* ---------- Shared helpers ---------- */
 
@@ -97,7 +99,7 @@ function greeting() {
 /* ---------- Home / My Inbox ---------- */
 
 export function HomeView() {
-  const { me, sync, go } = useApp();
+  const { me, sync, go, push, setPush } = useApp();
   const tasks = useLoad<{ tasks: Task[] }>("/api/tasks?scope=mine");
   const mentions = useLoad<{ mentions: MessageHit[] }>("/api/mentions");
   const general = sync?.channels.find((c) => c.type === "general");
@@ -138,6 +140,10 @@ export function HomeView() {
                 : "Here is what needs your attention, most urgent first."}
             </p>
           </div>
+        </div>
+
+        <div className="mb-6 empty:hidden">
+          <DeviceSetupCard push={push} onPush={setPush} dismissible />
         </div>
 
         {/* Counters, not charts: each one is a shortcut to the work behind it. */}
@@ -406,7 +412,13 @@ export function DirectoryView() {
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("all");
   const [city, setCity] = useState("all");
-  const users = data?.users ?? [];
+  // Keep online status fresh while the directory is open.
+  useEffect(() => {
+    const t = setInterval(reload, 30_000);
+    return () => clearInterval(t);
+  }, [reload]);
+  const users = [...(data?.users ?? [])].sort((a, b) => Number(isOnlineNow(b.lastSeenAt)) - Number(isOnlineNow(a.lastSeenAt)) || a.name.localeCompare(b.name));
+  const onlineNow = users.filter((u) => isOnlineNow(u.lastSeenAt)).length;
   const depts = [...new Set(users.map((u) => u.department).filter((x): x is string => !!x))].sort();
   const cities = [...new Set(users.map((u) => u.cityName).filter((x): x is string => !!x))].sort();
   const list = users.filter(
@@ -418,7 +430,7 @@ export function DirectoryView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="Team directory" subtitle={data ? `${users.length} people across ${cities.length || 1} location${cities.length === 1 ? "" : "s"}` : " "} icon={<Users className="h-4 w-4" />} onBack={() => go({ kind: "home" })} />
+      <PageHeader title="Team directory" subtitle={data ? `${users.length} people across ${cities.length || 1} location${cities.length === 1 ? "" : "s"} · ${onlineNow} online now` : " "} icon={<Users className="h-4 w-4" />} onBack={() => go({ kind: "home" })} />
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2.5 md:px-6">
         <div className="relative min-w-[200px] flex-1 md:max-w-sm">
           <Search className="absolute top-2.5 left-3 h-4 w-4 text-ink-4" />
@@ -445,11 +457,12 @@ export function DirectoryView() {
                 {list.map((u) => (
                   <li key={u.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 px-4 py-2.5 hover:bg-surface-2 md:grid-cols-[minmax(0,1.4fr)_1fr_1fr_120px]">
                     <div className="flex min-w-0 items-center gap-3">
-                      <Avatar name={u.name} size={36} />
+                      <PresenceAvatar name={u.name} size={36} lastSeenAt={u.lastSeenAt} />
                       <div className="min-w-0">
                         <div className="truncate text-[13.5px] font-medium">
                           {u.name} {u.id === me.id && <span className="text-[12px] font-normal text-ink-4">(you)</span>}
                         </div>
+                        <PresenceText lastSeenAt={u.lastSeenAt} className="text-[11.5px]" />
                         <div className="truncate text-[12px] text-ink-3 md:hidden">
                           {[u.department ? DEPARTMENT_LABELS[u.department] : null, u.cityName].filter(Boolean).join(" · ")}
                         </div>
@@ -954,7 +967,7 @@ export function AnnouncementsView() {
 /* ---------- Settings ---------- */
 
 export function SettingsView({ push, onPush }: { push: PushState; onPush: (p: PushState) => void }) {
-  const { me, go, vapidKey, toast } = useApp();
+  const { me, go } = useApp();
   const [form, setForm] = useState({ name: me.name, phone: me.phone ?? "", currentPassword: "", newPassword: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -1058,30 +1071,8 @@ export function SettingsView({ push, onPush }: { push: PushState; onPush: (p: Pu
             </div>
           </SettingsBlock>
 
-          <SettingsBlock title="Notifications" description="Push notifications reach this device even when PONGS CONNECT is closed.">
-            <div className="flex items-start gap-3 rounded-lg border border-line bg-surface-2 p-3 text-[13px]">
-              <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${push === "granted" ? "bg-positive" : push === "denied" ? "bg-danger" : "bg-ink-4"}`} />
-              <div className="flex-1">
-                {push === "granted" && <p>On. You will receive action item reminders, approvals and direct messages on this device.</p>}
-                {push === "denied" && <p className="text-danger">Blocked. Allow notifications for this site in your browser settings.</p>}
-                {push === "unsupported" && <p className="text-ink-2">Not supported here. On iPhone, tap Share → “Add to Home Screen”, then open the app from there.</p>}
-                {push === "default" && <p className="text-ink-2">Off on this device.</p>}
-                {!vapidKey && <p className="text-ink-3">Push notifications are not configured on the server yet.</p>}
-              </div>
-              {push === "default" && vapidKey && (
-                <button
-                  type="button"
-                  className="btn-primary px-2.5 py-1.5 text-xs"
-                  onClick={async () => {
-                    const r = await enablePush(vapidKey);
-                    onPush(r);
-                    if (r === "granted") toast("Notifications turned on");
-                  }}
-                >
-                  Turn on
-                </button>
-              )}
-            </div>
+          <SettingsBlock title="Phone app & notifications" description="Install PONGS CONNECT on this device and get reminders, approvals and messages even when it is closed.">
+            <DeviceSetupCard push={push} onPush={onPush} />
           </SettingsBlock>
 
           <SettingsBlock title="Keyboard" description="Move through conversations without leaving the keyboard.">

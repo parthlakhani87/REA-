@@ -15,6 +15,7 @@ export const GET = handler(async () => {
       department: users.department,
       canApprove: users.canApprove,
       cityName: cities.name,
+      lastSeenAt: users.lastSeenAt,
     })
     .from(users)
     .leftJoin(cities, eq(cities.id, users.cityId))

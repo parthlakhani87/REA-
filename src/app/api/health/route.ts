@@ -10,7 +10,8 @@ export async function GET() {
     database: Boolean(databaseUrl()),
     authSecret: (env.AUTH_SECRET?.length ?? 0) >= 16,
     blobStorage: Boolean(env.BLOB_READ_WRITE_TOKEN),
-    pushNotifications: Boolean(env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY),
+    // Keys come from the environment, or are generated and stored automatically on first use.
+    pushNotifications: env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? "environment keys" : "automatic keys",
     cronSecret: Boolean(env.CRON_SECRET),
     crmApiKey: Boolean(env.CRM_API_KEY),
   };

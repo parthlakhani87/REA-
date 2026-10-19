@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin, Plus, UserPlus } from "lucide-react";
-import { api } from "@/lib/client";
-import { Avatar, ChannelIcon, Modal, Wordmark } from "./ui";
+import { api, clockTime, isOnlineNow } from "@/lib/client";
+import { Avatar, ChannelIcon, Modal, PresenceAvatar, PresenceText, Wordmark } from "./ui";
 
 type City = { id: number; name: string };
 type Channel = { id: number; name: string; type: string; cityId: number | null; cityName: string | null };
@@ -18,6 +18,7 @@ type AdminUser = {
   canApprove: boolean;
   active: boolean;
   channelIds: number[];
+  lastSeenAt: string | null;
 };
 
 const DEPARTMENTS = [
@@ -28,7 +29,7 @@ const DEPARTMENTS = [
 ] as const;
 
 export function AdminPanel() {
-  const [tab, setTab] = useState<"users" | "cities" | "crm">("users");
+  const [tab, setTab] = useState<"users" | "activity" | "cities" | "crm">("users");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -63,10 +64,11 @@ export function AdminPanel() {
         <h1 className="text-[13px] font-medium text-nav-ink-2">Administration</h1>
       </header>
       <div className="mx-auto max-w-5xl p-4 md:p-8">
-        <div className="mb-6 flex gap-1 border-b border-line">
+        <div className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
           {(
             [
               ["users", "People"],
+              ["activity", "Online activity"],
               ["cities", "Cities & groups"],
               ["crm", "PONGS CRM integration"],
             ] as const
@@ -98,6 +100,7 @@ export function AdminPanel() {
                       {u.name} {!u.active && <span className="text-xs text-red-600">(deactivated)</span>}
                     </div>
                     <div className="truncate text-xs text-slate-500">{u.email}</div>
+                    <PresenceText lastSeenAt={u.lastSeenAt} className="text-[11.5px]" />
                   </div>
                   <div className="hidden text-right text-xs text-slate-600 capitalize sm:block">
                     <div>
@@ -118,6 +121,7 @@ export function AdminPanel() {
 
         {tab === "cities" && <CitiesTab cities={cities} channels={channels} users={users} onChange={load} />}
         {tab === "crm" && <CrmTab />}
+        {tab === "activity" && <ActivityTab />}
       </div>
 
       {editing && (
@@ -412,6 +416,149 @@ function CrmTab() {
         </li>
       </ol>
       <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">{sample}</pre>
+    </div>
+  );
+}
+
+type ActivityPerson = {
+  id: number;
+  name: string;
+  role: string;
+  department: string | null;
+  cityName: string | null;
+  lastSeenAt: string | null;
+  sessions: { start: string; end: string }[];
+  onlineMinutes: number;
+};
+
+function localDay(value: string) {
+  const [y, m, d] = value.split("-").map(Number);
+  const from = new Date(y!, m! - 1, d!);
+  const to = new Date(y!, m! - 1, d! + 1);
+  return { from, to };
+}
+
+function duration(mins: number) {
+  if (mins < 1) return "< 1 min";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? `${h} h ${m.toString().padStart(2, "0")} min` : `${m} min`;
+}
+
+// When each employee had PONGS Connect open on a given day.
+function ActivityTab() {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const [day, setDay] = useState(todayStr);
+  const [people, setPeople] = useState<ActivityPerson[] | null>(null);
+  const [error, setError] = useState("");
+  const [q, setQ] = useState("");
+
+  const load = useCallback(() => {
+    const { from, to } = localDay(day);
+    api<{ people: ActivityPerson[] }>(`/api/admin/activity?from=${from.toISOString()}&to=${to.toISOString()}`)
+      .then((r) => {
+        setPeople(r.people);
+        setError("");
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [day]);
+
+  useEffect(() => {
+    setPeople(null);
+    load();
+    if (day !== todayStr) return;
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [load, day, todayStr]);
+
+  const { from, to } = localDay(day);
+  const span = to.getTime() - from.getTime();
+  const list = (people ?? [])
+    .filter((p) => `${p.name} ${p.cityName ?? ""} ${p.department ?? ""}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => Number(isOnlineNow(b.lastSeenAt)) - Number(isOnlineNow(a.lastSeenAt)) || b.onlineMinutes - a.onlineMinutes || a.name.localeCompare(b.name));
+  const onlineNow = (people ?? []).filter((p) => isOnlineNow(p.lastSeenAt)).length;
+  const activeToday = (people ?? []).filter((p) => p.sessions.length > 0).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface p-4">
+        <div>
+          <label className="label">Day</label>
+          <input className="input" type="date" value={day} max={todayStr} onChange={(e) => e.target.value && setDay(e.target.value)} />
+        </div>
+        <div className="min-w-[180px] flex-1">
+          <label className="label">Find a person</label>
+          <input className="input" placeholder="Name, city or department" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="flex gap-4 text-[13px]">
+          {day === todayStr && (
+            <div>
+              <div className="font-display text-[20px] font-bold text-positive tabular-nums">{onlineNow}</div>
+              <div className="text-ink-3">online now</div>
+            </div>
+          )}
+          <div>
+            <div className="font-display text-[20px] font-bold tabular-nums">{activeToday}</div>
+            <div className="text-ink-3">were online{day === todayStr ? " today" : ""}</div>
+          </div>
+        </div>
+      </div>
+      <p className="text-[12.5px] text-ink-3">
+        A person counts as online while PONGS Connect is open on their screen. Times are in your local time zone; gaps under 2 minutes are joined.
+      </p>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {!people && !error && <p className="text-sm text-ink-3">Loading…</p>}
+      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+        {list.map((p) => (
+          <li key={p.id} className="px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <PresenceAvatar name={p.name} size={34} lastSeenAt={p.lastSeenAt} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13.5px] font-medium">{p.name}</div>
+                <div className="truncate text-[12px] text-ink-3 capitalize">
+                  {[p.cityName, p.department, p.role !== "member" ? p.role : null].filter(Boolean).join(" · ") || "—"}
+                </div>
+              </div>
+              <div className="text-right text-[12.5px]">
+                <PresenceText lastSeenAt={p.lastSeenAt} />
+                <div className="text-ink-3">
+                  {p.sessions.length
+                    ? `${clockTime(p.sessions[0]!.start)} – ${clockTime(p.sessions[p.sessions.length - 1]!.end)} · ${duration(p.onlineMinutes)} online`
+                    : "Not online this day"}
+                </div>
+              </div>
+            </div>
+            {p.sessions.length > 0 && (
+              <>
+                {/* 24-hour timeline: filled segments are online periods */}
+                <div className="relative mt-2.5 h-2.5 overflow-hidden rounded-full bg-surface-3" title="Online periods (00:00 – 24:00)">
+                  {p.sessions.map((s, i) => {
+                    const left = ((new Date(s.start).getTime() - from.getTime()) / span) * 100;
+                    const width = Math.max(0.4, ((new Date(s.end).getTime() - new Date(s.start).getTime()) / span) * 100);
+                    return <span key={i} className="absolute inset-y-0 rounded-full bg-positive" style={{ left: `${left}%`, width: `${width}%` }} />;
+                  })}
+                </div>
+                <div className="mt-1 flex justify-between text-[10px] text-ink-4 tabular-nums">
+                  <span>00:00</span>
+                  <span>06:00</span>
+                  <span>12:00</span>
+                  <span>18:00</span>
+                  <span>24:00</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {p.sessions.map((s, i) => (
+                    <span key={i} className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-2 tabular-nums">
+                      {clockTime(s.start)} – {clockTime(s.end)}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </li>
+        ))}
+        {people && list.length === 0 && <li className="p-6 text-center text-sm text-ink-3">No one matches.</li>}
+      </ul>
     </div>
   );
 }

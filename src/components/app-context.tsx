@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import type { ChannelSummary, Me } from "@/lib/client";
 import type { SavedMessage } from "@/lib/prefs";
+import type { PushState } from "@/lib/push-client";
 
 export type Sync = {
   channels: ChannelSummary[];
@@ -53,6 +54,8 @@ export type AppContext = {
   toggleSaved: (m: Omit<SavedMessage, "savedAt">) => void;
   toast: (text: string, tone?: "positive" | "danger") => void;
   vapidKey: string | null;
+  push: PushState;
+  setPush: (p: PushState) => void;
 };
 
 export const Ctx = createContext<AppContext | null>(null);

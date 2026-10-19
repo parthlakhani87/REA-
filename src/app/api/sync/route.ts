@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import { handler, json, requireUser } from "@/lib/api";
 import { visibleApprovals } from "@/lib/access";
 import { claimOpportunisticSweep, runReminderSweep } from "@/lib/reminders";
+import { heartbeat } from "@/lib/presence";
 
 export type ChannelSummary = {
   id: number;
@@ -17,11 +18,14 @@ export type ChannelSummary = {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   dmUserId: number | null;
+  dmLastSeenAt: string | null;
 };
 
 // Polled by the client every few seconds: sidebar state, unread counts and badge counts.
-export const GET = handler(async () => {
+export const GET = handler(async (req: Request) => {
   const user = await requireUser();
+  // The client sends active=1 only while the app is on screen, so "online" means really looking at it.
+  if (new URL(req.url).searchParams.get("active") === "1") after(() => heartbeat(user.id));
   const isAdmin = user.role === "admin";
 
   const rows = (await db.execute(sql`
@@ -35,7 +39,7 @@ export const GET = handler(async () => {
       case when lm.id is null then null
         else coalesce(lu.name || ': ', '') || case when lm.body <> '' then left(lm.body, 80) else '📎 Attachment' end
       end as "lastMessagePreview",
-      dm.user_id as "dmUserId", dmu.name as "dmName"
+      dm.user_id as "dmUserId", dmu.name as "dmName", to_json(dmu.last_seen_at) #>> '{}' as "dmLastSeenAt"
     from channels c
     left join cities ci on ci.id = c.city_id
     left join channel_members cm on cm.channel_id = c.id and cm.user_id = ${user.id}

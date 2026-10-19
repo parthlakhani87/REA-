@@ -18,7 +18,15 @@ export const GET = handler(async (req: Request, { params }: Ctx) => {
   const before = num(url.searchParams.get("before"));
   const since = url.searchParams.get("since");
 
-  const msgs = await loadMessages(channel.id, { after, before });
+  const around = num(url.searchParams.get("around"));
+
+  // `around` opens the history at a specific message (e.g. a search result): 25 before it, itself, 24 after.
+  const msgs = around
+    ? [
+        ...(await loadMessages(channel.id, { before: around + 1, limit: 25 })),
+        ...(await loadMessages(channel.id, { after: around, limit: 24 })),
+      ]
+    : await loadMessages(channel.id, { after, before });
   const taskIds = new Set(msgs.map((m) => m.taskId).filter((x): x is number => !!x));
   const approvalIds = new Set(msgs.map((m) => m.approvalId).filter((x): x is number => !!x));
   if (since) {

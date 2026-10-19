@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
-import { api, type Approval, type DirectoryUser, type Task } from "@/lib/client";
-import { Avatar, Modal } from "./ui";
+import { api, isOnlineNow, type Approval, type DirectoryUser, type Task } from "@/lib/client";
+import { Avatar, Modal, PresenceAvatar, PresenceText } from "./ui";
 
-type Member = { id: number; name: string; role: string; department: string | null; canApprove: boolean };
+type Member = { id: number; name: string; role: string; department: string | null; canApprove: boolean; lastSeenAt: string | null };
 
 function useMembers(channelId: number) {
   const [members, setMembers] = useState<Member[]>([]);
@@ -314,14 +314,17 @@ export function MembersDialog({ channelId, onClose, onMessage }: { channelId: nu
   return (
     <Modal title={`Members (${members.length})`} onClose={onClose}>
       <div className="max-h-96 divide-y divide-line overflow-y-auto">
-        {members.map((m) => (
+        {[...members]
+          .sort((a, b) => Number(isOnlineNow(b.lastSeenAt)) - Number(isOnlineNow(a.lastSeenAt)))
+          .map((m) => (
           <button key={m.id} onClick={() => onMessage(m.id)} className="flex w-full items-center gap-3 px-1 py-2 text-left hover:bg-surface-2 rounded-lg">
-            <Avatar name={m.name} />
+            <PresenceAvatar name={m.name} lastSeenAt={m.lastSeenAt} />
             <div className="flex-1">
               <div className="font-medium">{m.name}</div>
               <div className="text-xs text-slate-500 capitalize">
                 {[m.role !== "member" ? m.role : null, m.department, m.canApprove ? "approver" : null].filter(Boolean).join(" · ")}
               </div>
+              <PresenceText lastSeenAt={m.lastSeenAt} className="text-[11.5px]" />
             </div>
           </button>
         ))}

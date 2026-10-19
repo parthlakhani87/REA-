@@ -20,6 +20,7 @@ export const GET = handler(async () => {
       department: users.department,
       canApprove: users.canApprove,
       active: users.active,
+      lastSeenAt: users.lastSeenAt,
       channelIds: sql<number[]>`coalesce(array_agg(${channelMembers.channelId}) filter (where ${channels.type} <> 'dm'), '{}')`,
     })
     .from(users)
