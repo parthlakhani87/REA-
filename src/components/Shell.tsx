@@ -426,7 +426,7 @@ function Sidebar({
           <NavItem icon={<FolderOpen className={ic} strokeWidth={1.75} />} label="Shared files" active={is("files")} onClick={() => go({ kind: "files" })} />
         </div>
 
-        {push === "default" && vapidKey && (
+        {push === "default" && vapidKey && !sync?.notificationsPaused && (
           <button
             onClick={async () => onPush(await enablePush(vapidKey))}
             className="mt-3 flex w-full items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-xs text-ink-2 hover:border-line-strong"

@@ -5,6 +5,7 @@ import { handler, json, requireUser } from "@/lib/api";
 import { visibleApprovals } from "@/lib/access";
 import { claimOpportunisticSweep, runReminderSweep } from "@/lib/reminders";
 import { heartbeat } from "@/lib/presence";
+import { notificationsPaused } from "@/lib/notification-switch";
 
 export type ChannelSummary = {
   id: number;
@@ -80,5 +81,5 @@ export const GET = handler(async (req: Request) => {
     if (await claimOpportunisticSweep()) await runReminderSweep();
   });
 
-  return json({ channels, unreadNotifications, openTasks, pendingApprovals, serverTime: new Date().toISOString() });
+  return json({ notificationsPaused: await notificationsPaused(), channels, unreadNotifications, openTasks, pendingApprovals, serverTime: new Date().toISOString() });
 });

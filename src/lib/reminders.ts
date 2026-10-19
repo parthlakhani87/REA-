@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { approversForChannel } from "./access";
 import { notifyUsers } from "./notify";
+import { notificationsPaused } from "./notification-switch";
 import { channelLink } from "./messages";
 
 const { tasks, approvals, appMeta } = schema;
@@ -20,6 +21,7 @@ type TaskRow = typeof tasks.$inferSelect;
  * so concurrent sweeps (cron + opportunistic) never double-send.
  */
 export async function runReminderSweep() {
+  if (await notificationsPaused()) return { paused: true, notAttended: 0, inProgress: 0, approvals: 0 };
   const notAttended = await db
     .update(tasks)
     .set({ lastRemindedAt: sql`now()`, reminderCount: sql`${tasks.reminderCount} + 1` })

@@ -70,7 +70,8 @@ function Step({ n, done, title, children }: { n: number; done: boolean; title: s
  * `dismissible` cards hide themselves once set up (or when closed); the Settings version always shows.
  */
 export function DeviceSetupCard({ push, onPush, dismissible }: { push: PushState; onPush: (p: PushState) => void; dismissible?: boolean }) {
-  const { vapidKey, toast } = useApp();
+  const { vapidKey, toast, sync } = useApp();
+  const paused = !!sync?.notificationsPaused;
   const { installed, canPrompt, ios, install } = useInstall();
   const [dismissed, setDismissed] = usePref<boolean>("device-setup-dismissed", false);
   const [busy, setBusy] = useState(false);
@@ -79,7 +80,7 @@ export function DeviceSetupCard({ push, onPush, dismissible }: { push: PushState
 
   const needsInstall = !installed && (mobile || canPrompt);
   const pushOn = push === "granted";
-  if (dismissible && (dismissed || (!needsInstall && pushOn))) return null;
+  if (dismissible && (dismissed || paused || (!needsInstall && pushOn))) return null;
 
   async function turnOn() {
     if (!vapidKey) return toast("Notifications are not available on the server yet", "danger");
@@ -102,6 +103,7 @@ export function DeviceSetupCard({ push, onPush, dismissible }: { push: PushState
     setBusy(true);
     try {
       const r = await sendTestPush();
+      if (r.paused) return toast("Notifications are paused for everyone by your admin", "danger");
       toast(r.sent ? `Test sent to ${r.sent} device${r.sent === 1 ? "" : "s"}` : "No device is registered yet — turn notifications on first", r.sent ? "positive" : "danger");
     } catch (e) {
       toast((e as Error).message, "danger");
@@ -126,6 +128,11 @@ export function DeviceSetupCard({ push, onPush, dismissible }: { push: PushState
           <div className="text-[12px] text-ink-3">Opens like an app and alerts you even when it is closed.</div>
         </div>
       </div>
+      {paused && (
+        <p className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+          Notifications are currently paused for everyone by your admin. Nothing will be sent until they are turned back on.
+        </p>
+      )}
       <ol className="space-y-3">
         <Step n={1} done={!needsInstall} title={installed ? "Installed on this device" : "Install the app"}>
           {canPrompt ? (
