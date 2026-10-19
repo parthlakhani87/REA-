@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { api, formatTime, type ChannelSummary, type Me } from "@/lib/client";
-import { enablePush, pushStatus, type PushState } from "@/lib/push-client";
+import { enablePush, pushStatus, setAppBadge, type PushState } from "@/lib/push-client";
 import { useSaved, usePref } from "@/lib/prefs";
 import { Ctx, VIEW_LABELS, channelLabel, useApp as useApp_, type AppContext, type Sync, type View, type ViewKind } from "./app-context";
 import { ChatView } from "./ChatView";
@@ -42,7 +42,7 @@ import {
   SettingsView,
 } from "./Pages";
 import { ApprovalsView, NotificationsView, TasksView } from "./Views";
-import { Avatar, Badge, ChannelIcon, EmptyState, Kbd, Toast, Wordmark } from "./ui";
+import { Avatar, Badge, ChannelIcon, EmptyState, Kbd, PresenceAvatar, Toast, Wordmark } from "./ui";
 
 const DEPT_ORDER = ["sales", "project", "accounts", "dispatch"];
 const SYNC_MS = 5000;
@@ -94,7 +94,8 @@ export function Shell({ me, vapidKey }: { me: Me; vapidKey: string | null }) {
 
   const refresh = useCallback(async () => {
     try {
-      setSync(await api<Sync>("/api/sync"));
+      // active=1 marks the user online; only sent while the app is actually on screen.
+      setSync(await api<Sync>(`/api/sync${document.visibilityState === "visible" ? "?active=1" : ""}`));
     } catch {}
   }, []);
 
@@ -112,18 +113,21 @@ export function Shell({ me, vapidKey }: { me: Me; vapidKey: string | null }) {
     const t = setInterval(refresh, SYNC_MS);
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
-    pushStatus().then(setPush);
+    document.addEventListener("visibilitychange", onFocus);
+    pushStatus(vapidKey).then(setPush);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
     return () => {
       clearInterval(t);
       window.removeEventListener("popstate", onPop);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [refresh]);
+  }, [refresh, vapidKey]);
 
   const totalUnread = useMemo(() => sync?.channels.reduce((s, c) => s + c.unread, 0) ?? 0, [sync]);
   useEffect(() => {
     document.title = totalUnread ? `(${totalUnread}) PONGS Connect` : "PONGS Connect";
+    setAppBadge(totalUnread);
   }, [totalUnread]);
 
   const openDm = useCallback(
@@ -204,6 +208,8 @@ export function Shell({ me, vapidKey }: { me: Me; vapidKey: string | null }) {
     },
     toast,
     vapidKey,
+    push,
+    setPush,
   };
 
   return (
@@ -497,7 +503,7 @@ function DmRow({ c, active, onClick, detailed }: { c: ChannelSummary; active: bo
         active ? "bg-graphite text-white dark:bg-surface dark:shadow-[0_0_0_1px_var(--line)]" : "hover:bg-surface-3/70"
       }`}
     >
-      <Avatar name={c.name} size={detailed ? 36 : 20} />
+      <PresenceAvatar name={c.name} size={detailed ? 36 : 20} lastSeenAt={c.dmLastSeenAt} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className={`truncate text-[13px] ${c.unread ? "font-semibold" : active ? "" : "text-ink-2"}`}>{c.name}</span>

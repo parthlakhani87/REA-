@@ -10,7 +10,7 @@ export const GET = handler(async (_req: Request, { params }: Ctx) => {
   const user = await requireUser();
   const channel = await getChannelForUser(user, Number((await params).id));
   const members = await db
-    .select({ id: users.id, name: users.name, role: users.role, department: users.department, canApprove: users.canApprove })
+    .select({ id: users.id, name: users.name, role: users.role, department: users.department, canApprove: users.canApprove, lastSeenAt: users.lastSeenAt })
     .from(channelMembers)
     .innerJoin(users, eq(users.id, channelMembers.userId))
     .where(eq(channelMembers.channelId, channel.id))

@@ -11,8 +11,11 @@ import {
   FolderOpen,
   ListChecks,
   LoaderCircle,
+  ChevronDown,
+  ChevronUp,
   PanelRight,
   Paperclip,
+  Search,
   Plus,
   SendHorizontal,
   SquareCheck,
@@ -20,16 +23,17 @@ import {
   X,
 } from "lucide-react";
 import type { Attachment } from "@/db/schema";
-import { api, dayLabel, fileSize, relativeTime, type Approval, type ChannelSummary, type FileHit, type Message, type Task } from "@/lib/client";
+import { api, dayLabel, fileSize, isOnlineNow, lastSeenLabel, relativeTime, type Approval, type ChannelSummary, type FileHit, type Message, type MessageHit, type Task } from "@/lib/client";
 import { usePref } from "@/lib/prefs";
 import { channelLabel, useApp } from "./app-context";
 import { MembersDialog, NewApprovalDialog, NewTaskDialog } from "./Dialogs";
 import { FileIcon, MessageBubble } from "./MessageBubble";
-import { Avatar, ChannelIcon, DEPARTMENT_LABELS, EmptyState, ErrorState, Kbd, Skeleton, StatusPill } from "./ui";
+import { Avatar, ChannelIcon, DEPARTMENT_LABELS, EmptyState, ErrorState, Kbd, PresenceAvatar, PresenceText, Skeleton, StatusPill, highlight } from "./ui";
 
 type Page = { messages: Message[]; tasks: Task[]; approvals: Approval[]; serverTime: string };
+type Hit = MessageHit;
 type PendingUpload = { id: string; file: File; preview?: string; progress: number; result?: Attachment; error?: string };
-type Member = { id: number; name: string; role: string; department: string | null; canApprove: boolean };
+type Member = { id: number; name: string; role: string; department: string | null; canApprove: boolean; lastSeenAt: string | null };
 
 const POLL_MS = 3000;
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -56,6 +60,9 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
   const [mobilePanel, setMobilePanel] = useState(false);
   const [belowCount, setBelowCount] = useState(0);
   const [initialUnread] = useState(channel.unread);
+  // Message the history is opened at (search result / notification link). Changing it reloads around that message.
+  const [anchor, setAnchor] = useState<{ id: number } | undefined>(focusId ? { id: focusId } : undefined);
+  const [searching, setSearching] = useState(false);
 
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -91,10 +98,15 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
     if (!stickToBottom.current) setBelowCount((n) => n + incoming.length);
   }, []);
 
+  // Members (and their online status) refresh every 30 seconds.
   useEffect(() => {
-    api<{ members: Member[] }>(`/api/channels/${channel.id}/members`)
-      .then((r) => setMembers(r.members))
-      .catch(() => {});
+    const load = () =>
+      api<{ members: Member[] }>(`/api/channels/${channel.id}/members`)
+        .then((r) => setMembers(r.members))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
   }, [channel.id]);
 
   // Initial load + polling for this channel.
@@ -114,11 +126,13 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
     async function poll() {
       try {
         const qs = new URLSearchParams();
+        const opening = !cursor.current.lastId && anchor;
+        if (opening) qs.set("around", String(anchor.id));
         if (cursor.current.lastId) qs.set("after", String(cursor.current.lastId));
         if (cursor.current.since) qs.set("since", cursor.current.since);
         const page = await api<Page>(`/api/channels/${channel.id}/messages?${qs}`);
         if (stopped) return;
-        if (!cursor.current.since && page.messages.length < 50) setHasMore(false);
+        if (!cursor.current.since && !opening && page.messages.length < 50) setHasMore(false);
         appendMessages(page.messages);
         mergeCards(page);
         cursor.current.since = page.serverTime;
@@ -141,7 +155,7 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [channel.id, appendMessages, mergeCards, markRead]);
+  }, [channel.id, anchor, appendMessages, mergeCards, markRead]);
 
   // Toggle the details panel with Ctrl/Cmd + "."
   useEffect(() => {
@@ -171,7 +185,7 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
     if (!el || loading) return;
     if (!firstScrollDone.current) {
       firstScrollDone.current = true;
-      const focus = focusId ? document.getElementById(`m-${focusId}`) : null;
+      const focus = anchor ? document.getElementById(`m-${anchor.id}`) : null;
       if (focus) {
         el.scrollTop = Math.max(0, focus.offsetTop - el.clientHeight / 3);
         focus.animate([{ background: "var(--accent-soft)" }, { background: "transparent" }], { duration: 2000 });
@@ -186,7 +200,29 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
       }
     }
     if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [messages, tasks, approvals, loading, focusId]);
+  }, [messages, tasks, approvals, loading, anchor]);
+
+  // Scrolls to a message, loading the history around it first if it isn't on screen yet.
+  const jumpTo = useCallback((id: number) => {
+    const el = document.getElementById(`m-${id}`);
+    if (el) {
+      stickToBottom.current = false;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.animate([{ background: "var(--accent-soft)" }, { background: "transparent" }], { duration: 2000 });
+    } else {
+      setAnchor({ id });
+    }
+  }, []);
+
+  // A new search result / notification link for this same conversation (the view stays mounted).
+  const firstFocus = useRef(true);
+  useEffect(() => {
+    if (firstFocus.current) {
+      firstFocus.current = false;
+      return;
+    }
+    if (focusId) jumpTo(focusId);
+  }, [focusId, jumpTo]);
 
   async function loadOlder() {
     const first = messages[0];
@@ -218,8 +254,9 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
   }
 
   const title = isDm ? channel.name : channelLabel(channel);
+  const onlineCount = members.filter((m) => m.id !== me.id && isOnlineNow(m.lastSeenAt)).length;
   const subtitle = isDm
-    ? "Direct message"
+    ? lastSeenLabel(channel.dmLastSeenAt)
     : channel.type === "general"
       ? `Company-wide · ${members.length || "–"} members`
       : `${channel.cityName ?? ""} · ${DEPARTMENT_LABELS[channel.type] ?? "Channel"} department · ${members.length || "–"} members`;
@@ -268,7 +305,7 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
             <ArrowLeft className="h-5 w-5" />
           </button>
           {isDm ? (
-            <Avatar name={channel.name} size={32} />
+            <PresenceAvatar name={channel.name} size={32} lastSeenAt={channel.dmLastSeenAt} />
           ) : (
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface-2 text-ink-2">
               <ChannelIcon type={channel.type} className="h-4 w-4" />
@@ -279,7 +316,10 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
               <h1 className="truncate font-display text-[15px] font-bold">{title}</h1>
               {!channel.isMember && <span className="rounded border border-line px-1.5 text-[10.5px] font-medium text-ink-3">Viewing as admin</span>}
             </div>
-            <div className="truncate text-[12px] text-ink-3">{subtitle}</div>
+            <div className="truncate text-[12px] text-ink-3">
+              {isDm ? <PresenceText lastSeenAt={channel.dmLastSeenAt} /> : subtitle}
+              {!isDm && onlineCount > 0 && <span className="text-positive"> · {onlineCount} online</span>}
+            </div>
           </div>
           {!isDm && members.length > 0 && (
             <button className="hidden items-center -space-x-1.5 sm:flex" onClick={() => setDialog("members")} aria-label="Members" title="Members">
@@ -294,6 +334,15 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
             </button>
           )}
           <button
+            className={`btn-ghost p-2 ${searching ? "bg-surface-2 text-ink" : ""}`}
+            onClick={() => setSearching(!searching)}
+            aria-label="Search in this conversation"
+            aria-pressed={searching}
+            title="Search in this conversation"
+          >
+            <Search className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </button>
+          <button
             className={`btn-ghost hidden p-2 lg:inline-flex ${panelPref ? "bg-surface-2 text-ink" : ""}`}
             onClick={() => setPanelPref(!panelPref)}
             aria-label="Toggle details panel"
@@ -306,6 +355,8 @@ export function ChatView({ channel, focusId, onBack }: { channel: ChannelSummary
             <PanelRight className="h-[18px] w-[18px]" strokeWidth={1.75} />
           </button>
         </header>
+
+        {searching && <ChatSearch channelId={channel.id} onJump={jumpTo} onClose={() => setSearching(false)} />}
 
         <div className="relative min-h-0 flex-1">
           <div ref={scroller} onScroll={onScroll} className="scroll-thin absolute inset-0 overflow-y-auto pt-2 pb-4">
@@ -658,10 +709,13 @@ function ContextPanel({
         }
       >
         <ul className="space-y-0.5">
-          {members.slice(0, 10).map((m) => (
+          {[...members]
+            .sort((a, b) => Number(isOnlineNow(b.lastSeenAt)) - Number(isOnlineNow(a.lastSeenAt)))
+            .slice(0, 10)
+            .map((m) => (
             <li key={m.id}>
               <button onClick={() => onDm(m.id)} className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left hover:bg-surface-2">
-                <Avatar name={m.name} size={24} />
+                <PresenceAvatar name={m.name} size={24} lastSeenAt={m.lastSeenAt} />
                 <span className="min-w-0 flex-1 truncate text-[12.5px]">{m.name}</span>
                 <span className="text-[11px] text-ink-4 capitalize">{m.canApprove ? "Approver" : m.role !== "member" ? m.role : ""}</span>
               </button>
@@ -1019,4 +1073,94 @@ function sessionStorageSet(key: string, value: string) {
     if (value) sessionStorage.setItem(key, value);
     else sessionStorage.removeItem(key);
   } catch {}
+}
+
+/* ---------- In-conversation search ---------- */
+
+function ChatSearch({ channelId, onJump, onClose }: { channelId: number; onJump: (id: number) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Hit[] | null>(null);
+  const [index, setIndex] = useState(0);
+  const [listOpen, setListOpen] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) {
+      setHits(null);
+      return;
+    }
+    setBusy(true);
+    const t = setTimeout(() => {
+      api<{ messages: Hit[] }>(`/api/search?channelId=${channelId}&q=${encodeURIComponent(term)}`)
+        .then((r) => {
+          setHits(r.messages);
+          setIndex(0);
+          setListOpen(true);
+        })
+        .catch(() => setHits([]))
+        .finally(() => setBusy(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, channelId]);
+
+  function go(i: number) {
+    if (!hits?.length) return;
+    const next = (i + hits.length) % hits.length;
+    setIndex(next);
+    setListOpen(false);
+    onJump(hits[next]!.id);
+  }
+
+  return (
+    <div className="relative z-10 shrink-0 border-b border-line bg-surface">
+      <div className="flex items-center gap-2 px-3 py-2 md:px-6">
+        <Search className="h-4 w-4 shrink-0 text-ink-4" />
+        <input
+          autoFocus
+          className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-4"
+          placeholder="Search messages in this conversation"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+            if (e.key === "Enter") go(e.shiftKey ? index - 1 : listOpen ? index : index + 1);
+          }}
+        />
+        {busy && <LoaderCircle className="h-4 w-4 animate-spin text-ink-4" />}
+        {hits && (
+          <button className="shrink-0 text-[12px] text-ink-3 tabular-nums hover:text-ink" onClick={() => setListOpen(!listOpen)}>
+            {hits.length ? `${index + 1} of ${hits.length}${hits.length === 100 ? "+" : ""}` : "No matches"}
+          </button>
+        )}
+        <button className="btn-ghost p-1" disabled={!hits?.length} onClick={() => go(index + 1)} aria-label="Older match" title="Older match">
+          <ChevronUp className="h-4 w-4" />
+        </button>
+        <button className="btn-ghost p-1" disabled={!hits?.length} onClick={() => go(index - 1)} aria-label="Newer match" title="Newer match">
+          <ChevronDown className="h-4 w-4" />
+        </button>
+        <button className="btn-ghost p-1" onClick={onClose} aria-label="Close search">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {listOpen && !!hits?.length && (
+        <ul className="scroll-thin absolute inset-x-0 top-full max-h-[50vh] divide-y divide-line overflow-y-auto border-b border-line bg-surface shadow-lg">
+          {hits.map((h, i) => (
+            <li key={h.id}>
+              <button
+                onClick={() => go(i)}
+                className={`flex w-full flex-col gap-0.5 px-4 py-2.5 text-left hover:bg-surface-2 md:px-6 ${i === index ? "bg-surface-2" : ""}`}
+              >
+                <span className="flex items-center gap-2 text-[12px] text-ink-3">
+                  <b className="font-medium text-ink-2">{h.userName ?? "PONGS"}</b>
+                  <span className="ml-auto">{dayLabel(h.createdAt)} · {new Date(h.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                </span>
+                <span className="line-clamp-2 text-[13px]">{highlight(h.body, q)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }

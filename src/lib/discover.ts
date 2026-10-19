@@ -32,12 +32,13 @@ const messageColumns = sql`m.id::int as id, m.channel_id as "channelId",
   c.type as "channelType", ci.name as "cityName", u.name as "userName", m.body,
   to_json(m.created_at) #>> '{}' as "createdAt"`;
 
-export async function searchMessages(user: SessionUser, q: string, limit = 30) {
+export async function searchMessages(user: SessionUser, q: string, limit = 30, channelId?: number) {
   return (await db.execute(sql`
     select ${messageColumns}
     from messages m join channels c on c.id = m.channel_id
     left join cities ci on ci.id = c.city_id left join users u on u.id = m.user_id
     where m.kind = 'text' and m.body ilike ${likePattern(q)} and ${visibleChannel(user)}
+      ${channelId ? sql`and m.channel_id = ${channelId}` : sql``}
     order by m.id desc limit ${limit}
   `)) as unknown as MessageHit[];
 }

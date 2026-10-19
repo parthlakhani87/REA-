@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   title: "PONGS Connect",
   description: "Internal communication for PONGS INDIA — departments, projects, action items and CRM costing approvals.",
   appleWebApp: { capable: true, title: "PONGS Connect", statusBarStyle: "default" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+  applicationName: "PONGS Connect",
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {

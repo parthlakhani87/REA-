@@ -46,6 +46,7 @@ export const users = pgTable("users", {
   department: text("department").$type<Department>(),
   canApprove: boolean("can_approve").notNull().default(false),
   active: boolean("active").notNull().default(true),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -195,4 +196,24 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
 export const appMeta = pgTable("app_meta", {
   key: text("key").primaryKey(),
   value: timestamp("value", { withTimezone: true }).notNull(),
+});
+
+// Continuous stretches of time a user had the app open (used for "online" history).
+export const presenceSessions = pgTable(
+  "presence_sessions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("presence_user_idx").on(t.userId, t.endedAt), index("presence_started_idx").on(t.startedAt)],
+);
+
+// Server-generated settings, e.g. push notification keys when none are configured in the environment.
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
 });
