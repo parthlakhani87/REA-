@@ -11,6 +11,7 @@ Internal communication app for PONGS — something between WhatsApp and Slack.
 - **Phone app & device notifications.** PONGS Connect installs on Android and iPhone like a normal app (home-screen icon, full screen, unread badge on the icon). Reminders, approvals and messages arrive as **device notifications** on the lock screen even when the app is closed. Each person has a **Send a test notification** button in Settings.
 - **Search.** Search inside a conversation (🔍 in the chat header) or across everything (top search bar). Tapping a result opens the chat at that message, however old it is.
 - **Online / last seen.** A green dot shows who is online right now; otherwise you see "Last seen today at 10:32". Admins get an **Online activity** page showing each employee's online periods per day on a 24-hour timeline.
+- **Landing page & invites.** The main link is a public welcome page with sign-in, first-time steps and phone install instructions, and it shows a branded preview when shared on WhatsApp. When an admin adds a person, the app prepares a WhatsApp invite with the link, email and temporary password. On first sign-in the employee must choose their own password.
 - **Admin.** Admins add cities (groups are created automatically) and people (role, city, department, who can approve), and choose which groups each person belongs to.
 
 Built with Next.js 16 (App Router), Postgres (Drizzle ORM), Vercel Blob, Web Push and Vercel Cron.

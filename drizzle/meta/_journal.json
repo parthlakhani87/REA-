@@ -15,6 +15,13 @@
       "when": 1792407355000,
       "tag": "0001_presence_and_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792411414003,
+      "tag": "0002_must_change_password",
+      "breakpoints": true
     }
   ]
 }

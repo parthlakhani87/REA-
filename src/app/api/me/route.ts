@@ -25,10 +25,15 @@ export const PATCH = handler(async (req: Request) => {
   if (input.name) update.name = input.name;
   if (input.phone !== undefined) update.phone = input.phone || null;
   if (input.newPassword) {
-    if (!input.currentPassword || !(await bcrypt.compare(input.currentPassword, user.passwordHash))) {
+    // On first sign-in (temporary password from an admin) the person just authenticated with it, so it isn't asked again.
+    if (!user.mustChangePassword && (!input.currentPassword || !(await bcrypt.compare(input.currentPassword, user.passwordHash)))) {
       throw new HttpError(400, "Current password is incorrect");
     }
+    if (await bcrypt.compare(input.newPassword, user.passwordHash)) {
+      throw new HttpError(400, "Choose a password different from the temporary one");
+    }
     update.passwordHash = await bcrypt.hash(input.newPassword, 10);
+    update.mustChangePassword = false;
   }
   if (Object.keys(update).length) await db.update(schema.users).set(update).where(eq(schema.users.id, user.id));
   return json({ ok: true });

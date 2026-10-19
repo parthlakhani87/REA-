@@ -21,7 +21,10 @@ export const PATCH = handler(async (req: Request, { params }: Ctx) => {
   }
   const { password, channelIds, ...fields } = input;
   const update: Partial<typeof users.$inferInsert> = { ...fields };
-  if (password) update.passwordHash = await bcrypt.hash(password, 10);
+  if (password) {
+    update.passwordHash = await bcrypt.hash(password, 10);
+    update.mustChangePassword = true;
+  }
   if (Object.keys(update).length) {
     const [row] = await db.update(users).set(update).where(eq(users.id, id)).returning({ id: users.id });
     if (!row) throw new HttpError(404, "User not found");

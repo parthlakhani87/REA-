@@ -6,6 +6,7 @@ import { Shell } from "@/components/Shell";
 export default async function AppPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.mustChangePassword) redirect("/welcome");
   const vapidKey = await getVapidKeys()
     .then((k) => k.publicKey)
     .catch((err) => {

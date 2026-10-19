@@ -14,5 +14,5 @@ export const POST = handler(async (req: Request) => {
     throw new HttpError(401, "Wrong email or password");
   }
   await createSession(user.id);
-  return json({ ok: true });
+  return json({ ok: true, mustChangePassword: user.mustChangePassword });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, MapPin, Plus, UserPlus } from "lucide-react";
+import { ArrowLeft, Check, Copy, MapPin, Plus, Share2, UserPlus } from "lucide-react";
 import { api, clockTime, isOnlineNow } from "@/lib/client";
 import { Avatar, ChannelIcon, Modal, PresenceAvatar, PresenceText, Wordmark } from "./ui";
 
@@ -34,6 +34,9 @@ export function AdminPanel() {
   const [cities, setCities] = useState<City[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [editing, setEditing] = useState<AdminUser | "new" | null>(null);
+  const [invite, setInvite] = useState<Invite | null>(null);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
   const [q, setQ] = useState("");
 
   const load = useCallback(async () => {
@@ -87,7 +90,16 @@ export function AdminPanel() {
           <div className="panel">
             <div className="flex items-center gap-2 border-b p-3">
               <input className="input max-w-xs" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} />
-              <button className="btn-primary ml-auto" onClick={() => setEditing("new")}>
+              <a
+                className="btn-secondary ml-auto"
+                href={`https://wa.me/?text=${encodeURIComponent(`Join the PONGS team on PONGS Connect: ${origin}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Share the app link"
+              >
+                <Share2 className="h-4 w-4" /> <span className="hidden sm:inline">Share app link</span>
+              </a>
+              <button className="btn-primary" onClick={() => setEditing("new")}>
                 <UserPlus className="h-4 w-4" /> Add person
               </button>
             </div>
@@ -130,12 +142,14 @@ export function AdminPanel() {
           cities={cities}
           channels={channels}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(inv) => {
             setEditing(null);
+            if (inv) setInvite(inv);
             load();
           }}
         />
       )}
+      {invite && <InviteDialog invite={invite} onClose={() => setInvite(null)} />}
     </div>
   );
 }
@@ -211,7 +225,7 @@ function UserDialog({
   cities: City[];
   channels: Channel[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (invite?: Invite) => void;
 }) {
   const [form, setForm] = useState({
     name: user?.name ?? "",
@@ -271,7 +285,8 @@ function UserDialog({
     try {
       if (user) await api(`/api/admin/users/${user.id}`, { method: "PATCH", json: payload });
       else await api("/api/admin/users", { method: "POST", json: payload });
-      onSaved();
+      // A new account or a password reset produces an invite with the temporary password to send.
+      onSaved(form.password ? { name: form.name, email: form.email, phone: form.phone, password: form.password, isNew: !user } : undefined);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -560,5 +575,58 @@ function ActivityTab() {
         {people && list.length === 0 && <li className="p-6 text-center text-sm text-ink-3">No one matches.</li>}
       </ul>
     </div>
+  );
+}
+
+type Invite = { name: string; email: string; phone: string; password: string; isNew: boolean };
+
+function inviteText(inv: Invite, url: string) {
+  return [
+    `Hi ${inv.name.split(" ")[0]}, ${inv.isNew ? "welcome to PONGS Connect, our team app" : "your PONGS Connect password has been reset"}.`,
+    "",
+    `Open: ${url}`,
+    `Email: ${inv.email}`,
+    `Temporary password: ${inv.password}`,
+    "",
+    "You'll choose your own password when you sign in. Then add the app to your phone's home screen and turn on notifications.",
+  ].join("\n");
+}
+
+// Ready-to-send sign-in details for a new employee (or after a password reset).
+function InviteDialog({ invite, onClose }: { invite: Invite; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const url = typeof window !== "undefined" ? window.location.origin : "";
+  const text = inviteText(invite, url);
+  const digits = invite.phone.replace(/\D/g, "");
+  // Indian mobile numbers are often saved without the country code.
+  const waNumber = digits.length === 10 ? `91${digits}` : digits;
+  const wa = `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
+
+  return (
+    <Modal title={invite.isNew ? `Invite ${invite.name}` : `Send new password to ${invite.name}`} onClose={onClose}>
+      <p className="mb-3 text-[13px] text-ink-2">
+        Send these sign-in details to {invite.name.split(" ")[0]}. The temporary password is shown only now — they will set their own on first sign-in.
+      </p>
+      <pre className="mb-4 rounded-lg border border-line bg-surface-2 p-3 font-sans text-[13px] whitespace-pre-wrap">{text}</pre>
+      <div className="flex flex-wrap gap-2">
+        <a href={wa} target="_blank" rel="noreferrer" className="btn-primary">
+          <Share2 className="h-4 w-4" /> {waNumber ? "Send on WhatsApp" : "Share on WhatsApp"}
+        </a>
+        <button className="btn-secondary" onClick={copy}>
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? "Copied" : "Copy message"}
+        </button>
+        <button className="btn-ghost ml-auto" onClick={onClose}>
+          Done
+        </button>
+      </div>
+    </Modal>
   );
 }
